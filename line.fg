@@ -1,0 +1,14 @@
+out vec4 color;
+
+in float direction_out;
+
+uniform float stroke;
+
+void main()
+{
+  float edge_distance = 1 - abs(direction_out * 2 - 1);
+  float h = stroke / (2 * 1.0);
+  float alpha = min(h * edge_distance, 1);
+  
+  color = vec4(0, 0, 0, alpha);
+}

@@ -1,0 +1,14 @@
+in vec2 vertex;
+in vec2 normal;
+in float direction;
+
+out float direction_out;
+
+uniform mat4 view;
+uniform float stroke;
+
+void main()
+{
+  direction_out = direction;
+  gl_Position = view * vec4(vertex + (stroke * 0.5 * normal), 0.0, 1.0);
+}

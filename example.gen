@@ -1,0 +1,20 @@
+(def default
+ [<0 0>
+  <0 1>
+  <1 1>
+  <1 0>])
+
+(transform scale (points : [vector2] amount : vector1)
+  (each_point (multiply_point amount) points))
+
+(renderer lines (points : [vector2])
+   (each_pair (fun (pair : [vector2])
+               (line (fst pair) (snd pair))) points))
+
+(lines (scale default <2.0>))
+(lines default)
+
+(let ((a : vector2 <0 0>)
+      (b : int 2))
+      add-one b)
+      
