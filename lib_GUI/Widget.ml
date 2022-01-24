@@ -165,7 +165,7 @@ let create_row (children : t ref list) =
           | child::rest ->
              let curr_row = List.hd rows in
              let _, y, w, h = curr_row in
-             let child_width, child_height = !child.measure ~requested_width:100 () in
+             let child_width, child_height = !child.measure () in
              if width < w + child_width then (* make a new row *)
                let new_row = 0, y + h, child_width, child_height in
                state := (0, y + h, child_width, child_height)::!state;
@@ -219,3 +219,71 @@ let create_row (children : t ref list) =
     } in
   ref row
 ;;
+
+(* state is rect outline of each child *)
+type stack_state = {
+    rects : Rect.t list;
+    clip : Rect.t
+  }
+;;
+
+let create_stack (items : (t ref * Point.t) list) =
+  let state = ref ({ rects = []; clip = 0, 0, 0, 0 } : stack_state) in
+  let rec layout (items : (t ref * Point.t) list) (outline : Rect.t) =
+    (match items with
+     | [] -> outline
+     | (child, (px, py))::rest ->
+        let child_width, child_height = !child.measure () in
+        let child_rect = px, py, child_width, child_height in
+        state := { !state with rects = child_rect::!state.rects };
+        layout rest (Rect.union outline child_rect)) in
+  let measure requested_width requested_height () =
+    state := { rects = []; clip = 0, 0, 0, 0 };
+    let max_outline = match requested_width, requested_height with
+      | Some width, Some height -> 0, 0, width, height
+      | Some width, None -> 0, 0, width, 0
+      | None, Some height -> 0, 0, 0, height
+      | None, None -> 0, 0, 0, 0 in
+    let actual_outline = layout items max_outline in
+    state := { rects = List.rev !state.rects;
+               clip = Rect.union actual_outline max_outline };
+    !state.clip in
+  let paint (view : Mat2.t) (clip : Rect.t) =
+    List.iter (fun (child, (px, py)) ->
+        let child_view = Mat2.translate view px py in
+        !child.paint child_view clip
+      ) items in
+  let handler (e : Event.t) ~(dirty : bool) =
+    match e with
+    | Event.Mouse_Down p | Event.Mouse_Up p ->
+       let child_responded =
+         List.exists2 (fun (child, _) rect ->
+             if Rect.is_inside rect p then
+               let e' = Event.translate_position
+                          (- Rect.x rect) (- Rect.y rect) e in
+               !child.handler e' ~dirty
+             else false) (List.rev items) (List.rev !state.rects) in
+       if child_responded then true
+       else dirty
+    | Event.Mouse_Move (a, b) ->
+       let child_responses =
+         List.map2 (fun (child, _) rect ->
+             let is_inside = Rect.is_inside rect in
+             if is_inside a && not (is_inside b)
+             then !child.handler Event.Mouse_Leave ~dirty
+             else if is_inside b && not (is_inside a)
+             then !child.handler Event.Mouse_Enter ~dirty
+             else false) items !state.rects in
+       if List.exists ((=) true) child_responses then true
+       else dirty
+    | _ -> dirty in
+  let (stack : t) = {
+      measure = (fun ?requested_width ?requested_height () ->
+        let outline = measure requested_width requested_height () in
+        Rect.width outline, Rect.height outline);
+      paint;
+      handler;
+    } in
+  ref stack
+;;
+

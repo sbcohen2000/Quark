@@ -91,11 +91,14 @@ let main () =
                ~texture:"./fonts/texture.ppm"
                ~metadata:"./fonts/metadata.txt" in
 
-  let root = Widget.create_row (
+  let root = Widget.create_stack (
                  let rec f (n : int) =
                    if n = 0 then []
-                   else (Widget.create_button face (Int.to_string n))::(f (n - 1)) in
-                 f 2) in
+                   else
+                     let button = Widget.create_button face (Int.to_string n) in
+                     let location = Random.int 200, Random.int 200 in
+                     (button, location)::(f (n - 1)) in
+                 f 200) in
 
   ignore (GLFW.setWindowSizeCallback ~window ~f:(Some (resize root)));
   ignore (GLFW.setWindowContentScaleCallback ~window ~f:(Some rescale));

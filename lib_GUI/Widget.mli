@@ -8,6 +8,14 @@ type t = {
      *            called without having called measure first.
      *            Measure may store internal state in the widget
      *            which is required by paint.
+     *
+     * Important: If a requested_width or requested_height
+     *            are supplied to measure, the measure
+     *            function must layout the widget so that
+     *            it occupies no more than that size.
+     *            In other words, the requested size,
+     *            if it exists, must always equal the
+     *            actual size.
      *)
     measure :
       ?requested_width:int ->
@@ -43,3 +51,4 @@ type t = {
 val create_label : TextPainter.font -> string -> t ref
 val create_button : TextPainter.font -> string -> t ref
 val create_row : t ref list -> t ref
+val create_stack : (t ref * Point.t) list -> t ref
