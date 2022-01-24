@@ -22,12 +22,12 @@ let compile (src : string) (typ : int) =
     (Gl.delete_shader sid; raise (Compilation_Error log))
 ;;
 
-let create (vertex_shader : string) (fragment_shader : string) (gl_version : int * int) =
+let create ~(vert : string) ~(frag : string) (gl_version : int * int) =
   let glsl_version_string = glsl_version gl_version in
   let vert_src = "#version " ^ glsl_version_string
-                 ^ "core\n" ^ vertex_shader in
+                 ^ "core\n" ^ vert in
   let frag_src = "#version " ^ glsl_version_string
-                 ^ "core\n" ^ fragment_shader in
+                 ^ "core\n" ^ frag in
   let vert_id = compile vert_src Gl.vertex_shader in
   let frag_id = compile frag_src Gl.fragment_shader in
   let program_id = Gl.create_program () in
@@ -37,9 +37,6 @@ let create (vertex_shader : string) (fragment_shader : string) (gl_version : int
     Gl.delete_shader vert_id;
     Gl.attach_shader program_id frag_id;
     Gl.delete_shader frag_id;
-    Gl.bind_attrib_location program_id 0 "vertex";
-    Gl.bind_attrib_location program_id 1 "normal";
-    Gl.bind_attrib_location program_id 2 "direction";
     Gl.link_program program_id;
   end;
   if get_program program_id Gl.link_status = Gl.true_ then program_id else
@@ -60,7 +57,30 @@ let set_matrix_4fv (shader : t) (name : string) (mat : (float, Bigarray.float32_
   Gl.uniform_matrix4fv location 1 false mat;
 ;;
 
+let set_vec2 (shader : t) (name : string) (v : float * float) =
+  let location = Gl.get_uniform_location shader name in
+  let a, b = v in
+  Gl.uniform2f location a b;
+;;
+
+let set_vec3 (shader : t) (name : string) (v : float * float * float) =
+  let location = Gl.get_uniform_location shader name in
+  let a, b, c = v in
+  Gl.uniform3f location a b c;
+;;
+
+let set_vec4 (shader : t) (name : string) (v : float * float * float * float) =
+  let location = Gl.get_uniform_location shader name in
+  let a, b, c, d = v in
+  Gl.uniform4f location a b c d;
+;;
+
 let set_float (shader : t) (name : string) (v : float) =
   let location = Gl.get_uniform_location shader name in
   Gl.uniform1f location v;
+;;
+
+let set_int (shader : t) (name : string) (v : int) =
+  let location = Gl.get_uniform_location shader name in
+  Gl.uniform1i location v;
 ;;

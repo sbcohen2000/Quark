@@ -1,8 +1,7 @@
 type control_point = {
     point : Point.t;
-    dir : Point.t;
-    pre_extent : float;
-    post_extent : float;
+    before : Point.t;
+    after : Point.t;
   }
 
 type t = control_point list

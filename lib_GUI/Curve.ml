@@ -3,9 +3,8 @@ type pnt = Point.t
 
 type control_point = {
     point : pnt;
-    dir : pnt;
-    pre_extent : float;
-    post_extent : float;
+    before : pnt;
+    after : pnt;
   }
 ;;
 
@@ -51,10 +50,10 @@ let create (curve : t) =
   let rec f (curve : t) =
     match curve with
     | pa::pb::rest ->
-       let samples = linspace 100 in
+       let samples = linspace 20 in
        let a = pa.point
-       and b = Point.add pa.point (Point.scale pa.dir pa.post_extent)
-       and c = Point.add pb.point (Point.scale pb.dir pb.pre_extent)
+       and b = pa.after
+       and c = pb.before
        and d = pb.point in
        let path = List.map (qubic_bezier a b c d) samples in
        path::(f (pb::rest))
@@ -67,7 +66,7 @@ let rec normals (path : path) =
   | [] | [_] -> []
   | a::b::rest ->
      let dx, dy = Point.sub b a in
-     let cross = dy, -.dx in
+     let cross = dy, -dx in
      (Point.norm cross)::(normals (b::rest))
 ;;
 
@@ -86,7 +85,7 @@ let bisectors (path : path) =
     | [] -> [final]
     | p::rest ->
        let miter = Point.norm (Point.add p last) in
-       let length = 1. /. Point.dot last miter in
+       let length = 1. /. (Float.of_int (Point.dot last miter)) in
        (Point.scale miter length)::(f p rest) in
   match ns with
   | fst::rest -> fst::(f fst rest)

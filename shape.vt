@@ -1,8 +1,0 @@
-in vec2 vertex;
-
-uniform mat4 view;
-
-void main()
-{
-  gl_Position = view * vec4(vertex, 0.0, 1.0);
-}
