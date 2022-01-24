@@ -4,7 +4,7 @@ open Tgl4
 let set_content_scale, get_content_scale =
   let scale = ref (1., 1.) in
   (fun (x : float) (y : float) -> scale := x, y),
-  fun () -> 1., 1. (* TODO: implement content scaling properly *)
+  fun () -> !scale
 ;;
 
 let set_content_size, get_content_size =
@@ -19,8 +19,8 @@ let paint (root : Widget.t ref) (window : GLFW.window) =
   Gl.clear Gl.color_buffer_bit;
   let window_width, window_height = get_content_size () in
   let sx, sy = get_content_scale () in
-  let width  = Int.of_float (Float.round (Float.of_int window_width  /. sx)) in
-  let height = Int.of_float (Float.round (Float.of_int window_height /. sy)) in
+  let width  = Int.of_float (Float.round (Float.of_int window_width  *. sx)) in
+  let height = Int.of_float (Float.round (Float.of_int window_height *. sy)) in
   let view = Mat2.identity width height in
   ignore (!root.measure ~requested_width:width ~requested_height:height ());
   ignore (!root.paint view (0, 0, width, height));
@@ -38,8 +38,8 @@ let rescale _window csx csy =
 
 let mouse_to_coord_space (xpos : float) (ypos : float) =
   let sx, sy = get_content_scale () in
-  let x = Int.of_float (Float.round (xpos /. sx)) in
-  let y = Int.of_float (Float.round (ypos /. sy)) in
+  let x = Int.of_float (Float.round (xpos *. sx)) in
+  let y = Int.of_float (Float.round (ypos *. sy)) in
   x, y
 ;;
 
@@ -88,8 +88,8 @@ let main () =
   print_endline ("Content scale: " ^ Float.to_string csx ^ ", " ^ Float.to_string csy);
 
   let face = TextPainter.load_font
-               ~texture:"./fonts/texture.ppm"
-               ~metadata:"./fonts/metadata.txt" in
+               ~texture:"./fonts/texture-28.ppm"
+               ~metadata:"./fonts/metadata-28.txt" in
 
   let root = Widget.create_stack (
                  let rec f (n : int) =
