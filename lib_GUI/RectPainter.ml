@@ -157,7 +157,7 @@ let paint (view : Mat2.t) (clip : Rect.t) (style : style) (painter : t) =
   let shader = get_shader () in
   Shader.use shader;
   Shader.set_matrix_4fv shader "view" (Mat2.export view);
-  Shader.set_vec4 shader "clip" (Rect.to_float (Mat2.apply_rect view clip));
+  Shader.set_vec4 shader "clip" (Rect.to_float clip);
   Shader.set_vec4 shader "radii" (0.2, 0.2, 0.2, 0.2);
   Shader.set_vec3 shader "fill_color" style.color;
   Shader.set_vec4 shader "border_color"

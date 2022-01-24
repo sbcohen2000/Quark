@@ -266,7 +266,7 @@ let create (px, py : Point.t) (face : font) (text : string) =
 let paint (view : Mat2.t) (clip : Rect.t) (painter : t) =
   Shader.use painter.face.shader;
   Shader.set_matrix_4fv painter.face.shader "view" (Mat2.export view);
-  Shader.set_vec4 painter.face.shader "clip" (Rect.to_float (Mat2.apply_rect view clip));
+  Shader.set_vec4 painter.face.shader "clip" (Rect.to_float clip);
   Shader.set_int painter.face.shader "font_texture" 0;
   Shader.set_float painter.face.shader "font_texture_length"
     (Float.of_int painter.face.texture_buffer_width);

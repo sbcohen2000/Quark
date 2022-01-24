@@ -116,7 +116,7 @@ let create (curve : Curve.t) =
 let paint (view : Mat2.t) (clip : Rect.t) (painter : t) =
   Shader.use painter.shader;
   Shader.set_matrix_4fv painter.shader "view" (Mat2.export view);
-  Shader.set_vec4 painter.shader "clip" (Rect.to_float (Mat2.apply_rect view clip));
+  Shader.set_vec4 painter.shader "clip" (Rect.to_float clip);
   Gl.bind_vertex_array painter.vao;
   Gl.draw_arrays Gl.triangle_strip 0 painter.n_verts;
   Gl.bind_vertex_array 0

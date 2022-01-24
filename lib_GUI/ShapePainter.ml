@@ -81,7 +81,7 @@ let create (curve : Curve.t) =
 let paint (view : Mat2.t) (clip : Rect.t) (painter : t) =
   Shader.use painter.shader;
   Shader.set_matrix_4fv painter.shader "view" (Mat2.export view);
-  Shader.set_vec4 painter.shader "clip" (Rect.to_float (Mat2.apply_rect view clip));
+  Shader.set_vec4 painter.shader "clip" (Rect.to_float clip);
   (* configure stencil to invert value on draw *)
   Gl.enable Gl.stencil_test;
   Gl.clear Gl.stencil_buffer_bit;

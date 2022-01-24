@@ -28,9 +28,7 @@ type t = {
      * and the clipping rect to apply to the painting
      * operation. The view matrix is used to position
      * the widget at the proper place on the screen.
-     * The clipping rect is relative to the widget's
-     * view matrix (i.e. 0, 0 is the upper left corner
-     * of the widget, not the window. *)
+     *)
     paint : Mat2.t -> Rect.t -> unit;
     (* The handler function accepts an event and
      * returns whether or not the event caused the
