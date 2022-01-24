@@ -4,7 +4,7 @@ open Tgl4
 let set_content_scale, get_content_scale =
   let scale = ref (1., 1.) in
   (fun (x : float) (y : float) -> scale := x, y),
-  fun () -> !scale
+  fun () -> 1., 1. (* TODO: implement content scaling properly *)
 ;;
 
 let set_content_size, get_content_size =
