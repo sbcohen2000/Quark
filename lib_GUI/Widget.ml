@@ -14,6 +14,64 @@ type label_state = {
   }
 ;;
 
+exception Unequal_Lengths
+let rec zip = function
+  | (a::a_rest, b::b_rest) -> (a, b)::(zip (a_rest, b_rest))
+  | ([], []) -> []
+  | _ -> raise Unequal_Lengths
+;;
+
+(* This event handler simply passes all events to the widget's
+ * children. The input list is a list of tuples where the first
+ * element is a child widget reference and the second element is
+ * the rectangle that outlines the child widget. *)
+let generic_passthrough_handler (give_children : unit -> (t ref * Rect.t) list) =
+  let rec unzip = function
+    | ((a, b)::rest) -> let a_rest, b_rest = unzip rest in
+                        a::a_rest, b::b_rest
+    | [] -> ([], []) in
+  fun (e : Event.t) ~(dirty : bool) ->
+  let child_widgets, child_rects = unzip (give_children ()) in
+  match e with
+  | Event.Mouse_Down p | Event.Mouse_Up p ->
+     let child_responded =
+       List.exists2 (fun child rect ->
+           if Rect.is_inside rect p then
+             let e' = Event.translate_position
+                        (- Rect.x rect) (- Rect.y rect) e in
+             !child.handler e' ~dirty
+           else false) child_widgets child_rects in
+     if child_responded then true
+     else dirty
+  | Event.Mouse_Move (a, b) ->
+     let child_responses =
+       List.map2 (fun child rect ->
+           (* generate mouse enter / leave events *)
+           let r1 = match Event.create_enter_or_leave rect e with
+             | Some e' ->
+                let e'' = Event.translate_position
+                            (- Rect.x rect) (- Rect.y rect) e' in
+                !child.handler e'' ~dirty
+             | None -> false in
+           (* forward mouse move events to children *)
+           let r2 = if Rect.is_inside rect a &&
+                         Rect.is_inside rect b then
+                      let e' = Event.translate_position
+                                 (- Rect.x rect) (- Rect.y rect) e in
+                      !child.handler e' ~dirty
+                    else false in
+           r1 || r2 || dirty
+         ) child_widgets child_rects in
+     List.exists ((=) true) child_responses || dirty
+  | Event.Mouse_Enter p | Event.Mouse_Leave p ->
+     let child_responses =
+       List.map2 (fun child rect ->
+           if Rect.is_inside rect p then
+             !child.handler e ~dirty
+           else false) child_widgets child_rects in
+     List.exists ((=) true) child_responses || dirty
+;;
+
 let create_label (face : TextPainter.font) (text : string) =
   let text_width, text_height = TextPainter.measure face text in
   let state = ref {
@@ -133,9 +191,9 @@ let create_button (face : TextPainter.font) (text : string) =
        set_hover_state Pressed; true
     | Event.Mouse_Up _ ->
        set_hover_state Hovered; true
-    | Event.Mouse_Enter ->
+    | Event.Mouse_Enter _ ->
        set_hover_state Hovered; true
-    | Event.Mouse_Leave ->
+    | Event.Mouse_Leave _ ->
        set_hover_state Normal; true
     | _ -> dirty in
   let (button : t) = {
@@ -148,8 +206,7 @@ let create_button (face : TextPainter.font) (text : string) =
 
 exception TODO of string
 
-(* holds the position of the upper right hand corner of
- * each child *)
+(* holds the position and size of each child *)
 type row_state = Rect.t list
 ;;
 
@@ -183,30 +240,6 @@ let create_row (children : t ref list) =
         let child_view = Mat2.move view px py in
         !child.paint child_view clip;
       ) children !state in
-  let handler (e : Event.t) ~(dirty : bool) =
-    match e with
-    | Event.Mouse_Down p | Event.Mouse_Up p ->
-       let child_responded =
-         List.exists2 (fun child rect ->
-             if Rect.is_inside rect p then
-               let e' = Event.translate_position
-                          (- Rect.x rect) (- Rect.y rect) e in
-               !child.handler e' ~dirty
-             else false) children !state in
-       if child_responded then true
-       else dirty
-    | Event.Mouse_Move (a, b) ->
-       let child_responses =
-         List.map2 (fun child rect ->
-             let is_inside = Rect.is_inside rect in
-             if is_inside a && not (is_inside b)
-             then !child.handler Event.Mouse_Leave ~dirty
-             else if is_inside b && not (is_inside a)
-             then !child.handler Event.Mouse_Enter ~dirty
-             else false) children !state in
-       if List.exists ((=) true) child_responses then true
-       else dirty
-    | _ -> dirty in
   let (row : t) =
     {
       measure = (fun ?requested_width ?requested_height () ->
@@ -215,7 +248,8 @@ let create_row (children : t ref list) =
                         (0, 0, 0, 0) rows in
         Rect.width outline, Rect.height outline);
       paint;
-      handler;
+      handler = generic_passthrough_handler
+                  (fun () -> (zip (children, !state)))
     } in
   ref row
 ;;
@@ -250,33 +284,14 @@ let create_stack (items : (t ref * Point.t) list) =
     !state.clip in
   let paint (view : Mat2.t) (clip : Rect.t) =
     List.iter (fun (child, (px, py)) ->
-        let child_view = Mat2.translate view px py in
+        let child_view = Mat2.move view px py in
         !child.paint child_view clip
       ) items in
-  let handler (e : Event.t) ~(dirty : bool) =
-    match e with
-    | Event.Mouse_Down p | Event.Mouse_Up p ->
-       let child_responded =
-         List.exists2 (fun (child, _) rect ->
-             if Rect.is_inside rect p then
-               let e' = Event.translate_position
-                          (- Rect.x rect) (- Rect.y rect) e in
-               !child.handler e' ~dirty
-             else false) (List.rev items) (List.rev !state.rects) in
-       if child_responded then true
-       else dirty
-    | Event.Mouse_Move (a, b) ->
-       let child_responses =
-         List.map2 (fun (child, _) rect ->
-             let is_inside = Rect.is_inside rect in
-             if is_inside a && not (is_inside b)
-             then !child.handler Event.Mouse_Leave ~dirty
-             else if is_inside b && not (is_inside a)
-             then !child.handler Event.Mouse_Enter ~dirty
-             else false) items !state.rects in
-       if List.exists ((=) true) child_responses then true
-       else dirty
-    | _ -> dirty in
+  let handler =
+    let children = List.map (fun (child, _) -> child) items in
+    let rects = !state.rects in
+    generic_passthrough_handler
+      (fun () -> (zip (children, rects))) in
   let (stack : t) = {
       measure = (fun ?requested_width ?requested_height () ->
         let outline = measure requested_width requested_height () in
@@ -287,3 +302,55 @@ let create_stack (items : (t ref * Point.t) list) =
   ref stack
 ;;
 
+type frame_state = {
+    content_rect : Rect.t;
+  }
+;;
+
+let create_frame (content : t ref) =
+  let title_height = 10 in
+  let (title_style : RectPainter.style) =
+    {
+      top_right_radius = 0;
+      bottom_right_radius = 0;
+      bottom_left_radius = 0;
+      top_left_radius = 0;
+      color = 0.2, 0.1, 0.1;
+      border_color = Some (0.3, 0.2, 0.2);
+    } in
+  let (state : frame_state ref) = ref { content_rect = 0, 0, 0, 0 } in
+  let measure requested_width requested_height () =
+    let content_width, content_height = match requested_width, requested_height with
+      | Some width, Some height ->
+         !content.measure ~requested_width:width
+           ~requested_height:(height - title_height) ()
+      | Some width, None ->
+         !content.measure ~requested_width:width ()
+      | None, Some height ->
+         !content.measure ~requested_height:(height - title_height) ()
+      | None, None ->
+         !content.measure () in
+    state := { content_rect = 0, title_height, content_width, content_height };
+    content_width, content_height + title_height in
+  let paint (view : Mat2.t) (clip : Rect.t) =
+    let title_rect = 0, 0, Rect.width !state.content_rect, title_height in
+    let painter = RectPainter.create [| title_rect |] in
+    RectPainter.paint view clip title_style painter;
+    let content_view = Mat2.move view 0 title_height in
+    !content.paint content_view clip in
+  let (frame : t) =
+    {
+      measure = (fun ?requested_width ?requested_height () ->
+        measure requested_width requested_height ());
+      paint;
+      handler = generic_passthrough_handler
+                  (fun () -> [content, !state.content_rect])
+    } in
+  ref frame
+;;
+
+(* let create_window (frames : (t ref * Point.t) list) = *)
+(*   let stack = create_stack (List.map create_frame frames) in *)
+(*   let measure requested_width requested_height () = *)
+
+(* ;; *)
