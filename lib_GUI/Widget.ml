@@ -125,7 +125,7 @@ let create_button (face : TextPainter.font) (text : string) =
     let rect = 0, 0, width, height in
     let painter = RectPainter.create [| rect |] in
     RectPainter.paint view clip (get_current_style ()) painter;
-    let child_view = Mat2.translate view padding padding in
+    let child_view = Mat2.move view padding padding in
     !label.paint child_view clip in
   let handler (e : Event.t) ~(dirty : bool) =
     match e with

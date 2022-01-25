@@ -37,12 +37,12 @@ let identity (width : int) (height : int) =
   ({ width; height; translate_x = 0; translate_y = 0; } : t)
 ;;
 
-let move (mat : t) (x : int) (y : int) =
+let set_translation (mat : t) (x : int) (y : int) =
   { mat with translate_x = x;
              translate_y = y; }
 ;;
 
-let translate (mat : t) (x : int) (y : int) =
+let move (mat : t) (x : int) (y : int) =
   let width = mat.width
   and height = mat.height
   and translate_x = mat.translate_x + x
