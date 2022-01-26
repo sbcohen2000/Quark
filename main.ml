@@ -88,13 +88,18 @@ let main () =
   print_endline ("Content scale: " ^ Float.to_string csx ^ ", " ^ Float.to_string csy);
 
   let face = TextPainter.load_font
-               ~texture:"./fonts/texture-14.ppm"
-               ~metadata:"./fonts/metadata-14.txt" in
+               ~texture:"./fonts/Geneva-13.ppm"
+               ~metadata:"./fonts/Geneva-13.txt" in
 
-  let root = Widget.create_frame (Widget.create_row [
-                                      Widget.create_button face "Hello, World";
-                                      Widget.create_button face "This is my button"
-               ]) in
+  let root = Widget.create_window [
+                 Widget.create_button face "Button";
+                 Widget.create_label face "Label";
+                 Widget.create_row [
+                     Widget.create_button face "Button 1";
+                     Widget.create_button face "Button 2";
+                     Widget.create_button face "Button 3"
+                   ]
+               ] in
   
   ignore (GLFW.setWindowSizeCallback ~window ~f:(Some (resize root)));
   ignore (GLFW.setWindowContentScaleCallback ~window ~f:(Some rescale));
