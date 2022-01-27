@@ -13,7 +13,7 @@ let set_content_size, get_content_size =
   fun () -> !size
 ;;
 
-let paint (root : Widget.t ref) (window : GLFW.window) =
+let paint (root : Widgets.widget) (window : GLFW.window) =
   (* print_endline "repaint!"; *)
   Gl.clear_color 0.1 0.1 0.1 1.;
   Gl.clear Gl.color_buffer_bit;
@@ -22,12 +22,12 @@ let paint (root : Widget.t ref) (window : GLFW.window) =
   let width  = Int.of_float (Float.round (Float.of_int window_width  *. sx)) in
   let height = Int.of_float (Float.round (Float.of_int window_height *. sy)) in
   let view = GFX.Mat2.identity width height in
-  ignore (!root.measure ~requested_width:width ~requested_height:height ());
-  ignore (!root.paint view (0, 0, width, height));
+  ignore (root#measure ~requested_width:width ~requested_height:height ());
+  ignore (root#paint view (0, 0, width, height));
   GLFW.swapBuffers ~window;
 ;;
 
-let resize (root : Widget.t ref) window width height =
+let resize (root : Widgets.widget) window width height =
   set_content_size width height;
   paint root window;
 ;;
@@ -46,20 +46,20 @@ let mouse_to_coord_space (xpos : float) (ypos : float) =
 let last_mouse_move = ref (0, 0)
 ;;
 
-let mouse_move (root : Widget.t ref) window xpos ypos =
+let mouse_move (root : Widgets.widget) window xpos ypos =
   let p = mouse_to_coord_space xpos ypos in
   let event = Event.Mouse_Move (!last_mouse_move, p) in
-  let dirty = !root.handler event ~dirty:false in
+  let dirty = root#handle event ~dirty:false in
   if dirty then paint root window;
   last_mouse_move := p
 ;;
 
-let mouse_button (root : Widget.t ref) window _button was_press _modifiers =
+let mouse_button (root : Widgets.widget) window _button was_press _modifiers =
   let xpos, ypos = GLFW.getCursorPos ~window in
   let p = mouse_to_coord_space xpos ypos in
   let event = if was_press then Event.Mouse_Down p
               else Event.Mouse_Up p in
-  let dirty = !root.handler event ~dirty:false in
+  let dirty = root#handle event ~dirty:false in
   if dirty then paint root window
 ;;
 
@@ -87,26 +87,22 @@ let main () =
   print_endline ("Content scale: " ^ Float.to_string csx ^ ", " ^ Float.to_string csy);
 
   let face = GFX.TextPainter.load_font
-               ~texture:"./fonts/Geneva-26.ppm"
-               ~metadata:"./fonts/Geneva-26.txt" in
+               ~texture:"./fonts/Geneva-13.ppm"
+               ~metadata:"./fonts/Geneva-13.txt" in
 
-  let root = Widget.create_window [
-                 Widget.create_row [
-                     Widget.create_button face "Button 1";
-                     Widget.create_button face "Button 2";
-                     Widget.create_button face "Button 3";
-                   ]
-               ] in
-  
-  ignore (GLFW.setWindowSizeCallback ~window ~f:(Some (resize root)));
+  let root = new Widgets.window [new Widgets.window [
+                 new Widgets.button face "Button 1";
+                 new Widgets.button face "Button 2";
+                                   ]] in
+  ignore (GLFW.setWindowSizeCallback ~window ~f:(Some (resize (root :> Widgets.widget))));
   ignore (GLFW.setWindowContentScaleCallback ~window ~f:(Some rescale));
-  ignore (GLFW.setCursorPosCallback ~window ~f:(Some (mouse_move root)));
-  ignore (GLFW.setMouseButtonCallback ~window ~f:(Some (mouse_button root)));
+  ignore (GLFW.setCursorPosCallback ~window ~f:(Some (mouse_move (root :> Widgets.widget))));
+  ignore (GLFW.setMouseButtonCallback ~window ~f:(Some (mouse_button (root :> Widgets.widget))));
   
   Gl.enable Gl.blend;
   Gl.blend_func Gl.src_alpha Gl.one_minus_src_alpha;
 
-  paint root window;
+  paint (root :> Widgets.widget) window;
   while not (GLFW.windowShouldClose ~window) do
     GLFW.waitEvents ();
   done

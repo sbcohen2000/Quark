@@ -22,8 +22,7 @@ type t = {
     measure :
       ?requested_width:int ->
       ?requested_height:int ->
-      unit ->
-      (int * int);
+      unit -> int * int;
     (* The paint function paints the widget to
      * the current OpenGL context. The function
      * takes two arguments: the current view matrix,
