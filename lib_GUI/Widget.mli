@@ -1,3 +1,5 @@
+open GFX
+
 type t = {
     (* The measure function returns the final
      * size of the widget. It takes two optional

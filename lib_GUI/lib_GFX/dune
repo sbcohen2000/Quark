@@ -1,0 +1,4 @@
+(library
+ (name GFX)
+ (libraries tgls.tgl4))
+ 

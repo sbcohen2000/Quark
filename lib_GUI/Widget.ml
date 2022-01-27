@@ -1,3 +1,5 @@
+open GFX
+
 type t = {
     measure :
       ?requested_width:int ->

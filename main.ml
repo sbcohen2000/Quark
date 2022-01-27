@@ -1,5 +1,5 @@
-open GUI
 open Tgl4
+open GUI
 
 let set_content_scale, get_content_scale =
   let scale = ref (1., 1.) in
@@ -21,7 +21,7 @@ let paint (root : Widget.t ref) (window : GLFW.window) =
   let sx, sy = get_content_scale () in
   let width  = Int.of_float (Float.round (Float.of_int window_width  *. sx)) in
   let height = Int.of_float (Float.round (Float.of_int window_height *. sy)) in
-  let view = Mat2.identity width height in
+  let view = GFX.Mat2.identity width height in
   ignore (!root.measure ~requested_width:width ~requested_height:height ());
   ignore (!root.paint view (0, 0, width, height));
   GLFW.swapBuffers ~window;
@@ -86,7 +86,7 @@ let main () =
   print_endline ("OpenGL version: " ^ gl_version);
   print_endline ("Content scale: " ^ Float.to_string csx ^ ", " ^ Float.to_string csy);
 
-  let face = TextPainter.load_font
+  let face = GFX.TextPainter.load_font
                ~texture:"./fonts/Geneva-26.ppm"
                ~metadata:"./fonts/Geneva-26.txt" in
 

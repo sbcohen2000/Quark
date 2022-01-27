@@ -1,3 +1,5 @@
+open GFX
+
 type t = Mouse_Up    of Point.t
        | Mouse_Down  of Point.t
        | Mouse_Move  of Point.t * Point.t
