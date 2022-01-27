@@ -46,8 +46,9 @@ type t = {
     handler : Event.t -> dirty:bool -> bool
   }
 
-val create_label : TextPainter.font -> string -> t ref
+val create_label  : TextPainter.font -> string -> t ref
 val create_button : TextPainter.font -> string -> t ref
-val create_row : t ref list -> t ref
-val create_stack : (t ref * Point.t) list -> t ref
-val create_frame : t ref -> t ref
+val create_row    : t ref list -> t ref
+val create_stack  : (t ref * Point.t) list -> t ref
+val create_frame  : t ref -> on_mouse_down:(Point.t -> unit) -> t ref
+val create_window : t ref list -> t ref

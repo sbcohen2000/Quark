@@ -15,7 +15,7 @@ let set_content_size, get_content_size =
 
 let paint (root : Widget.t ref) (window : GLFW.window) =
   (* print_endline "repaint!"; *)
-  Gl.clear_color 0.2 0.2 0.2 1.;
+  Gl.clear_color 0.1 0.1 0.1 1.;
   Gl.clear Gl.color_buffer_bit;
   let window_width, window_height = get_content_size () in
   let sx, sy = get_content_scale () in
@@ -48,11 +48,10 @@ let last_mouse_move = ref (0, 0)
 
 let mouse_move (root : Widget.t ref) window xpos ypos =
   let p = mouse_to_coord_space xpos ypos in
-  if Point.distance p !last_mouse_move > 10. then
-    let event = Event.Mouse_Move (!last_mouse_move, p) in
-    let dirty = !root.handler event ~dirty:false in
-    if dirty then paint root window;
-    last_mouse_move := p
+  let event = Event.Mouse_Move (!last_mouse_move, p) in
+  let dirty = !root.handler event ~dirty:false in
+  if dirty then paint root window;
+  last_mouse_move := p
 ;;
 
 let mouse_button (root : Widget.t ref) window _button was_press _modifiers =
@@ -88,16 +87,14 @@ let main () =
   print_endline ("Content scale: " ^ Float.to_string csx ^ ", " ^ Float.to_string csy);
 
   let face = TextPainter.load_font
-               ~texture:"./fonts/Geneva-13.ppm"
-               ~metadata:"./fonts/Geneva-13.txt" in
+               ~texture:"./fonts/Geneva-26.ppm"
+               ~metadata:"./fonts/Geneva-26.txt" in
 
   let root = Widget.create_window [
-                 Widget.create_button face "Button";
-                 Widget.create_label face "Label";
                  Widget.create_row [
                      Widget.create_button face "Button 1";
                      Widget.create_button face "Button 2";
-                     Widget.create_button face "Button 3"
+                     Widget.create_button face "Button 3";
                    ]
                ] in
   

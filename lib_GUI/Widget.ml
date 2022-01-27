@@ -67,8 +67,11 @@ let generic_passthrough_handler (give_children : unit -> (t ref * Rect.t) list) 
      let child_responses =
        List.map2 (fun child rect ->
            if Rect.is_inside rect p then
-             !child.handler e ~dirty
-           else false) child_widgets child_rects in
+             let e' = Event.translate_position
+                  (- Rect.x rect) (- Rect.y rect) e in
+             !child.handler e' ~dirty
+           else false)
+         child_widgets child_rects in
      List.exists ((=) true) child_responses || dirty
 ;;
 
@@ -234,6 +237,15 @@ let create_row (children : t ref list) =
                layout rest (curr_row'::(List.tl rows))) in
        let rows = layout children [(0, 0, 0, 0)] in
        state := List.rev !state; rows
+    | None, None ->
+       let width, height =
+         List.fold_left (fun (width, height) child ->
+             let child_width, child_height = !child.measure () in
+             state := (width, 0, child_width, child_height)::!state;
+             width + child_width, max height child_height)
+           (0, 0) children in
+       let row = 0, 0, width, height in
+       state := List.rev !state; [row]
     | _ -> raise (TODO "measure row with unspecified width or height") in
   let paint (view : Mat2.t) (clip : Rect.t)=
     List.iter2 (fun child (px, py, _, _) ->
@@ -244,7 +256,7 @@ let create_row (children : t ref list) =
     {
       measure = (fun ?requested_width ?requested_height () ->
         let rows = measure requested_width requested_height () in
-        let outline = List.fold_left (fun outline row -> Rect.union outline row)
+        let outline = List.fold_left Rect.union
                         (0, 0, 0, 0) rows in
         Rect.width outline, Rect.height outline);
       paint;
@@ -288,10 +300,11 @@ let create_stack (items : (t ref * Point.t) list) =
         !child.paint child_view clip
       ) items in
   let handler =
-    let children = List.map (fun (child, _) -> child) items in
-    let rects = !state.rects in
     generic_passthrough_handler
-      (fun () -> (zip (children, rects))) in
+      (fun () ->
+        let children = List.map (fun (child, _) -> child) items in
+        let rects = !state.rects in
+        zip (children, rects)) in
   let (stack : t) = {
       measure = (fun ?requested_width ?requested_height () ->
         let outline = measure requested_width requested_height () in
@@ -307,7 +320,8 @@ type frame_state = {
   }
 ;;
 
-let create_frame (content : t ref) =
+let create_frame (content : t ref)
+      ~(on_mouse_down : Point.t -> unit) =
   let title_height = 10 in
   let (title_style : RectPainter.style) =
     {
@@ -315,8 +329,8 @@ let create_frame (content : t ref) =
       bottom_right_radius = 0;
       bottom_left_radius = 0;
       top_left_radius = 0;
-      color = 0.2, 0.1, 0.1;
-      border_color = Some (0.3, 0.2, 0.2);
+      color = 0.5, 0.3, 0.1;
+      border_color = Some (1., 0.6, 0.2);
     } in
   let (state : frame_state ref) = ref { content_rect = 0, 0, 0, 0 } in
   let measure requested_width requested_height () =
@@ -338,19 +352,69 @@ let create_frame (content : t ref) =
     RectPainter.paint view clip title_style painter;
     let content_view = Mat2.move view 0 title_height in
     !content.paint content_view clip in
+  let handler (e : Event.t) ~(dirty : bool) =
+    let title_bar_rect = 0, 0, Rect.width !state.content_rect, title_height in
+    match e with
+    | Event.Mouse_Down p when Rect.is_inside title_bar_rect p ->
+       on_mouse_down p; true
+    | _ -> generic_passthrough_handler
+             (fun () -> [content, !state.content_rect])
+             e ~dirty
+  in
   let (frame : t) =
     {
       measure = (fun ?requested_width ?requested_height () ->
         measure requested_width requested_height ());
       paint;
-      handler = generic_passthrough_handler
-                  (fun () -> [content, !state.content_rect])
+      handler;
     } in
   ref frame
 ;;
 
-(* let create_window (frames : (t ref * Point.t) list) = *)
-(*   let stack = create_stack (List.map create_frame frames) in *)
-(*   let measure requested_width requested_height () = *)
+type window_state = {
+    frame_positions : Point.t array;
+    stack : t ref;
+  }
+;;
 
-(* ;; *)
+let create_window (frames : t ref list) =
+  let (dragging : (int * Point.t) option ref ) = ref None in
+  let on_frame_mouse_down (frame_no : int) (offset : Point.t) =
+    dragging := Some (frame_no, offset) in
+  let (state : window_state ref) =
+    ref {
+        frame_positions = Array.init (List.length frames) (fun _ -> 0, 0);
+        stack = create_stack
+                  (List.mapi (fun idx content ->
+                       create_frame content
+                         ~on_mouse_down:(on_frame_mouse_down idx),
+                       (0, 0)) frames)
+      } in
+  let handler (e : Event.t) ~(dirty : bool) =
+    match e, !dragging with
+    | Event.Mouse_Move (_, (x, y)), Some (frame_no, offset) ->
+       let ox, oy = offset in
+       Array.set !state.frame_positions frame_no (x - ox, y - oy);
+       let new_stack =
+         create_stack
+           (List.mapi (fun idx content ->
+                create_frame content
+                  ~on_mouse_down:(on_frame_mouse_down idx),
+                let x, y = Array.get !state.frame_positions idx in
+                (x, y)) frames) in
+       state := { !state with stack = new_stack };
+       true
+    | Event.Mouse_Up _, Some _ ->
+       dragging := None; dirty
+    | _ -> !(!state.stack).handler e ~dirty in
+  let (window : t) =
+    {
+      measure = (fun ?requested_width:_
+                     ?requested_height:_ () ->
+        !(!state.stack).measure ());
+      paint = (fun (view : Mat2.t) (clip : Rect.t)->
+        !(!state.stack).paint view clip);
+      handler;
+    } in
+  ref window
+;;
