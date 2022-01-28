@@ -90,10 +90,14 @@ let main () =
                ~texture:"./fonts/Geneva-13.ppm"
                ~metadata:"./fonts/Geneva-13.txt" in
 
-  let root = new Widgets.window [new Widgets.window [
-                 new Widgets.button face "Button 1";
-                 new Widgets.button face "Button 2";
-                                   ]] in
+  let root = new Widgets.window [
+                 ((new Widgets.component face
+                     ~inputs:["r"; "g"; "b"; "alpha"]
+                     ~outputs:["color"]
+                     ~on_clicked_receptacle:(print_endline)
+                     ~on_released_receptacle:(print_endline)) :> Widgets.widget)
+               ] in
+
   ignore (GLFW.setWindowSizeCallback ~window ~f:(Some (resize (root :> Widgets.widget))));
   ignore (GLFW.setWindowContentScaleCallback ~window ~f:(Some rescale));
   ignore (GLFW.setCursorPosCallback ~window ~f:(Some (mouse_move (root :> Widgets.widget))));

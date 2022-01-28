@@ -18,6 +18,11 @@ end
 
 open List
 
+let new_id =
+  let curr_id = ref 0 in
+  fun () -> curr_id := !curr_id + 1; !curr_id
+;;
+
 class virtual widget =
         object
           method virtual measure : ?requested_width:int ->
@@ -25,6 +30,9 @@ class virtual widget =
                                    unit -> int * int
           method virtual paint : Mat2.t -> Rect.t -> unit
           method virtual handle : Event.t -> dirty:bool -> bool
+
+          val id = new_id ()
+          method get_id = id
         end
 ;;
 
@@ -256,6 +264,60 @@ class row (children : widget list) =
   end
 ;;
 
+class column (children : widget list) =
+  object
+    inherit container
+    
+    val mutable child_rects = ([] : Rect.t list)
+
+    method get_child_rects () = List.zip children child_rects
+    
+    method measure ?(requested_width  : int option) ?(requested_height : int option) () =
+      child_rects <- [];
+      let rows =
+        match requested_width, requested_height with
+        | Some _, Some height ->
+           let rec layout (children : widget list) (columns : Rect.t list) =
+             (match children with
+              | [] -> columns
+              | child::rest ->
+                 let curr_col = List.hd columns in
+                 let x, _, w, h = curr_col in
+                 let child_width, child_height = child#measure () in
+                 if height < h + child_height then (* make a new row *)
+                   let new_col = x + w, 0, child_width, child_height in
+                   child_rects <- (x + w, 0, child_width, child_height)::child_rects;
+                   layout rest (new_col::columns)
+                 else (* add to the existing row *)
+                   let curr_row' = x, 0, (if child_width > w then child_width else w),
+                                   h + child_height in
+                   child_rects <- (x, h, child_width, child_height)::child_rects;
+                   layout rest (curr_row'::(List.tl columns))) in
+           let rows = layout children [(0, 0, 0, 0)] in
+           child_rects <- List.rev child_rects; rows
+        | None, None ->
+           let width, height =
+             List.fold_left (fun (width, height) (child : widget) ->
+                 let child_width, child_height = child#measure () in
+                 child_rects <- (0, height, child_width, child_height)::child_rects;
+                 max width child_width, height + child_height)
+               (0, 0) children in
+           let row = 0, 0, width, height in
+           child_rects <- List.rev child_rects; [row]
+        | _ -> raise (TODO "measure row with unspecified width or height") in
+      let outline = List.fold_left Rect.union (0, 0, 0, 0) rows in
+      Rect.width outline, Rect.height outline
+
+    method paint (view : Mat2.t) (clip : Rect.t) =
+      List.iter2 (fun child (px, py, _, _) ->
+          let child_view = Mat2.move view px py in
+          child#paint child_view clip;
+        ) children child_rects
+    
+  end
+;;
+
+
 class stack (children : (widget * Point.t) list) =
   let rec layout = function
     | [] -> []
@@ -339,46 +401,119 @@ class frame (child : widget) ~(on_mouse_down : Point.t -> unit) =
   end
 ;;
 
+class receptacle ~(on_mouse_down : unit -> unit) ~(on_mouse_up : unit -> unit) =
+  let size = 10 in
+  let (style : RectPainter.style) = {
+      top_right_radius = size / 2;
+      bottom_right_radius = size / 2;
+      bottom_left_radius = size / 2;
+      top_left_radius = size / 2;
+      color = 0.8, 0.8, 0.8;
+      border_color = Some (0.5, 0.5, 0.5);
+    } in
+  object
+    inherit widget
+
+    val mutable measured_size = 0, 0
+    
+    method measure ?(requested_width : int option) ?(requested_height : int option) () =
+      let size = match requested_width, requested_height with
+        | Some width, Some height -> width, height
+        | Some width, None -> width, size
+        | None, Some height -> size, height
+        | None, None -> size, size in
+      measured_size <- size; size
+
+    method paint (view : Mat2.t) (clip : Rect.t) =
+      let rect = 0, 0, size, size in
+      let mx, my = measured_size in
+      let padding_x = (mx - size) / 2 in
+      let padding_y = (my - size) / 2 in
+      let painter = RectPainter.create [| rect |] in
+      let view' = Mat2.move view padding_x padding_y in
+      RectPainter.paint view' clip style painter
+
+    method handle (e : Event.t) ~(dirty : bool) =
+      match e with
+      | Event.Mouse_Down _ -> on_mouse_down (); dirty
+      | Event.Mouse_Up _ -> on_mouse_up (); dirty
+      | _ -> dirty
+  end
+;;
+
+class component
+        (face : TextPainter.font)
+        ~(inputs : string list)
+        ~(outputs : string list)
+        ~(on_clicked_receptacle : string -> unit)
+        ~(on_released_receptacle : string -> unit) =
+  let child =
+    let make_input_row (input : string) =
+      (new row [
+           new receptacle
+             ~on_mouse_down:(fun () -> on_clicked_receptacle input)
+             ~on_mouse_up:(fun () -> on_released_receptacle input);
+           new label face input
+         ] :> widget) in
+    let make_output_row (output : string) =
+      (new row [
+           new label face output;
+           new receptacle
+             ~on_mouse_down:(fun () -> on_clicked_receptacle output)
+             ~on_mouse_up:(fun () -> on_released_receptacle output)
+         ] :> widget) in
+    let make_input_col (inputs : string list) =
+      new column (List.map make_input_row inputs) in
+    let make_output_col (outputs : string list) =
+      new column (List.map make_output_row outputs) in
+    new row [
+        ((make_input_col inputs) :> widget);
+        ((make_output_col outputs) :> widget)
+      ] in
+  object
+    inherit widget
+
+    method measure = child#measure
+    method paint = child#paint
+    method handle = child#handle
+  end
+;;
+
 class window (frames : widget list) =
-  let rebuild_stack (frames : widget list)
-        (on_mouse_down : int -> Point.t -> unit)
-        (frame_positions : Point.t array) =
-      new stack (List.mapi (fun (idx : int) (content : widget) ->
-                     ((new frame content ~on_mouse_down:(on_mouse_down idx)) :> widget),
-                     Array.get frame_positions idx) frames) in
+  let rebuild_stack (on_mouse_down : int -> Point.t -> unit) (frame_positions : Point.t array) =
+    new stack (List.mapi (fun (idx : int) (content : widget) ->
+                   ((new frame content ~on_mouse_down:(on_mouse_down idx)) :> widget),
+                   Array.get frame_positions idx) frames) in
   object(self)
     inherit widget
-        
+    
     val mutable dragging = (None : (int * Point.t) option)
     val frame_positions = Array.init (List.length frames)
                             (fun _ -> 0, 0)
     val mutable stack = new stack []
-      
+    
     method private on_frame_mouse_down (frame_no : int) (offset : Point.t) =
       dragging <- Some (frame_no, offset)
 
     initializer
-      stack <- rebuild_stack frames
+      stack <- rebuild_stack
                  (fun idx p -> self#on_frame_mouse_down idx p)
                  frame_positions
 
-    method measure ?requested_width:_ ?requested_height:_ () =
-      stack#measure ()
+    method measure = stack#measure
+    method paint = stack#paint
     
-    method paint (view : Mat2.t) (clip : Rect.t) =
-      stack#paint view clip
-
     method handle (e : Event.t) ~(dirty : bool) =
-          match e, dragging with
-    | Event.Mouse_Move (_, (x, y)), Some (frame_no, offset) ->
-       let ox, oy = offset in
-       Array.set frame_positions frame_no (x - ox, y - oy);
-       stack <- rebuild_stack frames
-                  (fun idx p -> self#on_frame_mouse_down idx p)
-                  frame_positions; true
-    | Event.Mouse_Up _, Some _ ->
-       dragging <- None; dirty
-    | _ -> stack#handle e ~dirty
+      match e, dragging with
+      | Event.Mouse_Move (_, (x, y)), Some (frame_no, offset) ->
+         let ox, oy = offset in
+         Array.set frame_positions frame_no (x - ox, y - oy);
+         stack <- rebuild_stack
+                    (fun idx p -> self#on_frame_mouse_down idx p)
+                    frame_positions; true
+      | Event.Mouse_Up _, Some _ ->
+         dragging <- None; dirty
+      | _ -> stack#handle e ~dirty
 
   end
 ;;
