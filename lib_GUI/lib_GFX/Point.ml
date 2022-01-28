@@ -50,3 +50,8 @@ let to_float (a : t) =
   let x, y = a in
   Float.of_int x, Float.of_int y
 ;;
+
+let to_string (a : t) =
+  let x, y = a in
+  "(" ^ Int.to_string x ^ ", " ^ Int.to_string y ^ ")"
+;;

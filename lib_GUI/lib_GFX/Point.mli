@@ -9,3 +9,4 @@ val distance : t -> t -> float
 val norm : t -> t
 val dot : t -> t -> int
 val to_float : t -> float * float
+val to_string : t -> string
