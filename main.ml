@@ -90,12 +90,11 @@ let main () =
                ~texture:"./fonts/Geneva-13.ppm"
                ~metadata:"./fonts/Geneva-13.txt" in
 
-  let root = new Widgets.window [
-                 ((new Widgets.component face
-                     ~inputs:["r"; "g"; "b"; "alpha"]
-                     ~outputs:["color"]
-                     ~on_clicked_receptacle:(print_endline)
-                     ~on_released_receptacle:(print_endline)) :> Widgets.widget)
+  let root = new Widgets.component_graph face [
+                 { inputs = ["r"; "g"; "b"; "alpha"];
+                   outputs = ["color"] };
+                 { inputs = ["color"];
+                   outputs = ["value"] };
                ] in
 
   ignore (GLFW.setWindowSizeCallback ~window ~f:(Some (resize (root :> Widgets.widget))));

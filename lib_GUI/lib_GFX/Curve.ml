@@ -1,17 +1,16 @@
-type pnt = Point.t
-;;
+type vec = Vec2.t
 
 type control_point = {
-    point : pnt;
-    before : pnt;
-    after : pnt;
+    point : Point.t;
+    before : Point.t;
+    after : Point.t;
   }
 ;;
 
 type t = control_point list
 ;;
 
-type path = Point.t list
+type path = Vec2.t list
 ;;
 
 let clamp (s : float) (min, max : float * float) =
@@ -20,13 +19,13 @@ let clamp (s : float) (min, max : float * float) =
   else s
 ;;
   
-let lerp (a : pnt) (b : pnt) (s : float) =
+let lerp (a : vec) (b : vec) (s : float) =
   let s = clamp s (0., 1.) in
-  let d = Point.sub b a in
-  Point.add a (Point.scale d s)
+  let d = Vec2.sub b a in
+  Vec2.add a (Vec2.scale d s)
 ;;
 
-let qubic_bezier (a : pnt) (b : pnt) (c : pnt) (d : pnt) (s : float) =
+let qubic_bezier (a : vec) (b : vec) (c : vec) (d : vec) (s : float) =
   let ab = lerp a b s in
   let bc = lerp b c s in
   let cd = lerp c d s in
@@ -50,11 +49,11 @@ let create (curve : t) =
   let rec f (curve : t) =
     match curve with
     | pa::pb::rest ->
-       let samples = linspace 20 in
-       let a = pa.point
-       and b = pa.after
-       and c = pb.before
-       and d = pb.point in
+       let samples = linspace 10 in
+       let a = Vec2.of_point pa.point
+       and b = Vec2.of_point pa.after
+       and c = Vec2.of_point pb.before
+       and d = Vec2.of_point pb.point in
        let path = List.map (qubic_bezier a b c d) samples in
        path::(f (pb::rest))
     | _ -> [] in
@@ -65,9 +64,9 @@ let rec normals (path : path) =
   match path with
   | [] | [_] -> []
   | a::b::rest ->
-     let dx, dy = Point.sub b a in
-     let cross = dy, -dx in
-     (Point.norm cross)::(normals (b::rest))
+     let dx, dy = Vec2.sub b a in
+     let cross = dy, -.dx in
+     (Vec2.norm cross)::(normals (b::rest))
 ;;
 
 exception Empty
@@ -80,13 +79,13 @@ let rec last = function
 let bisectors (path : path) =
   let ns = normals path in
   let final = last ns in
-  let rec f (last : pnt) =
+  let rec f (last : vec) =
     function
     | [] -> [final]
     | p::rest ->
-       let miter = Point.norm (Point.add p last) in
-       let length = 1. /. (Float.of_int (Point.dot last miter)) in
-       (Point.scale miter length)::(f p rest) in
+       let miter = Vec2.norm (Vec2.add p last) in
+       let length = 1. /. (Vec2.dot last miter) in
+       (Vec2.scale miter length)::(f p rest) in
   match ns with
   | fst::rest -> fst::(f fst rest)
   | [] -> raise Empty

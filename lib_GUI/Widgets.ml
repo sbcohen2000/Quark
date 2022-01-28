@@ -18,12 +18,7 @@ end
 
 open List
 
-let new_id =
-  let curr_id = ref 0 in
-  fun () -> curr_id := !curr_id + 1; !curr_id
-;;
-
-class virtual widget =
+class virtual widget (id : string option) =
         object
           method virtual measure : ?requested_width:int ->
                                    ?requested_height:int ->
@@ -31,14 +26,16 @@ class virtual widget =
           method virtual paint : Mat2.t -> Rect.t -> unit
           method virtual handle : Event.t -> dirty:bool -> bool
 
-          val id = new_id ()
+          val id = match id with Some s -> s | None -> ""
           method get_id = id
+
+          method virtual location_of_child : string -> Point.t -> Point.t option
         end
 ;;
 
-class virtual container =
+class virtual container (id : string option) =
         object(self)
-          inherit widget
+          inherit widget id
 
           method virtual private get_child_rects : unit -> (widget * Rect.t) list
           
@@ -85,6 +82,17 @@ class virtual container =
                      else false)
                    child_widgets child_rects in
                List.exists ((=) true) child_responses || dirty
+
+          method location_of_child (child_id : string) (p : Point.t) =
+            if child_id = id then Some p
+            else let child_widgets, child_rects = unzip (self#get_child_rects ()) in
+                 List.fold_left2 (fun location child rect ->
+                     let child_position = Rect.x rect, Rect.y rect in
+                     match location, child#location_of_child child_id
+                                       (Point.add p child_position) with
+                     | None, Some pos -> Some pos
+                     | Some pos, _ -> Some pos
+                     | _ -> None) None child_widgets child_rects
         end
 ;;
 
@@ -96,7 +104,7 @@ class label (face : TextPainter.font) (text : string) =
     else let text' = String.sub text 0 (String.length text - 1) in
          shrink requested_width text' in
   object
-    inherit widget
+    inherit widget None
 
     val mutable measured_size = 0, 0
     
@@ -124,6 +132,10 @@ class label (face : TextPainter.font) (text : string) =
       TextPainter.paint view clip painter
 
     method handle _ ~dirty = dirty
+
+    method location_of_child (child_id : string) (p : Point.t) =
+      if child_id = id then Some p
+      else None
   end
 ;;
 
@@ -154,7 +166,7 @@ class button (face : TextPainter.font) (text : string) =
                            0.85 *. 0.5) } in
   let child = new label face text in
   object(self)
-    inherit widget
+    inherit widget None
     
     val mutable measured_size = 0, 0
     val mutable hover_state = Normal
@@ -208,12 +220,17 @@ class button (face : TextPainter.font) (text : string) =
       | Event.Mouse_Leave _ ->
          hover_state <- Normal; true
       | _ -> dirty
+
+    method location_of_child (child_id : string) (p : Point.t) =
+      if child_id = id then Some p
+      else if child_id = child#get_id then Some p
+      else None
   end
 ;;
 
 class row (children : widget list) =
   object
-    inherit container
+    inherit container None
     
     val mutable child_rects = ([] : Rect.t list)
 
@@ -266,7 +283,7 @@ class row (children : widget list) =
 
 class column (children : widget list) =
   object
-    inherit container
+    inherit container None
     
     val mutable child_rects = ([] : Rect.t list)
 
@@ -326,7 +343,7 @@ class stack (children : (widget * Point.t) list) =
        let child_rect = px, py, child_width, child_height in
        child_rect::(layout rest) in
   object
-    inherit container
+    inherit container None
     
     val mutable child_rects = ([] : Rect.t list)
     val mutable clip_rect = 0, 0, 0, 0
@@ -365,7 +382,7 @@ class frame (child : widget) ~(on_mouse_down : Point.t -> unit) =
       border_color = Some (1., 0.6, 0.2);
     } in
   object
-    inherit container as super
+    inherit container None as super
     
     val mutable child_rect = 0, 0, 0, 0
 
@@ -401,7 +418,9 @@ class frame (child : widget) ~(on_mouse_down : Point.t -> unit) =
   end
 ;;
 
-class receptacle ~(on_mouse_down : unit -> unit) ~(on_mouse_up : unit -> unit) =
+class receptacle (id : string)
+        ~(on_mouse_down : string -> unit)
+        ~(on_mouse_up : string -> unit) =
   let size = 10 in
   let (style : RectPainter.style) = {
       top_right_radius = size / 2;
@@ -411,8 +430,8 @@ class receptacle ~(on_mouse_down : unit -> unit) ~(on_mouse_up : unit -> unit) =
       color = 0.8, 0.8, 0.8;
       border_color = Some (0.5, 0.5, 0.5);
     } in
-  object
-    inherit widget
+  object(self)
+    inherit widget (Some id)
 
     val mutable measured_size = 0, 0
     
@@ -435,9 +454,14 @@ class receptacle ~(on_mouse_down : unit -> unit) ~(on_mouse_up : unit -> unit) =
 
     method handle (e : Event.t) ~(dirty : bool) =
       match e with
-      | Event.Mouse_Down _ -> on_mouse_down (); dirty
-      | Event.Mouse_Up _ -> on_mouse_up (); dirty
+      | Event.Mouse_Down _ -> on_mouse_down self#get_id; dirty
+      | Event.Mouse_Up _ -> on_mouse_up self#get_id; dirty
       | _ -> dirty
+
+    method location_of_child (child_id : string) (p : Point.t) =
+      if child_id = id then Some p
+      else None
+
   end
 ;;
 
@@ -447,75 +471,144 @@ class component
         ~(outputs : string list)
         ~(on_clicked_receptacle : string -> unit)
         ~(on_released_receptacle : string -> unit) =
-  let child =
-    let make_input_row (input : string) =
-      (new row [
-           new receptacle
-             ~on_mouse_down:(fun () -> on_clicked_receptacle input)
-             ~on_mouse_up:(fun () -> on_released_receptacle input);
-           new label face input
-         ] :> widget) in
-    let make_output_row (output : string) =
-      (new row [
-           new label face output;
-           new receptacle
-             ~on_mouse_down:(fun () -> on_clicked_receptacle output)
-             ~on_mouse_up:(fun () -> on_released_receptacle output)
-         ] :> widget) in
-    let make_input_col (inputs : string list) =
-      new column (List.map make_input_row inputs) in
-    let make_output_col (outputs : string list) =
-      new column (List.map make_output_row outputs) in
-    new row [
-        ((make_input_col inputs) :> widget);
-        ((make_output_col outputs) :> widget)
-      ] in
-  object
-    inherit widget
+  object(self)
+    inherit widget None
 
+    val mutable child = new label face "unbuilt"
+
+    method private make_child () =
+      let make_input_row (input : string) =
+        (new row [
+             new receptacle
+               input
+               ~on_mouse_down:(fun id -> on_clicked_receptacle id)
+               ~on_mouse_up:(fun id -> on_released_receptacle id);
+             new label face input
+           ] :> widget) in
+      let make_output_row (output : string) =
+        (new row [
+             new label face output;
+             new receptacle
+               output
+               ~on_mouse_down:(fun id -> on_clicked_receptacle id)
+               ~on_mouse_up:(fun id -> on_released_receptacle id)
+           ] :> widget) in
+      let make_input_col (inputs : string list) =
+        new column (List.map make_input_row inputs) in
+      let make_output_col (outputs : string list) =
+        new column (List.map make_output_row outputs) in
+      child <- (new row [
+                    ((make_input_col inputs) :> widget);
+                    ((make_output_col outputs) :> widget)
+                  ] :> widget)
+
+    initializer
+      self#make_child ()
+    
     method measure = child#measure
     method paint = child#paint
     method handle = child#handle
+
+    method location_of_child (child_id : string) (p : Point.t) =
+      if child_id = id then Some p
+      else child#location_of_child child_id p
+    
   end
 ;;
 
-class window (frames : widget list) =
-  let rebuild_stack (on_mouse_down : int -> Point.t -> unit) (frame_positions : Point.t array) =
-    new stack (List.mapi (fun (idx : int) (content : widget) ->
-                   ((new frame content ~on_mouse_down:(on_mouse_down idx)) :> widget),
-                   Array.get frame_positions idx) frames) in
+type drag_state =
+  | NoDrag
+  | Dragging_Frame of int * Point.t
+  | Dragging_Wire of {
+      start_port : string;
+      current_location : Point.t
+    }
+;;
+
+type component_spec =
+  {
+    inputs : string list;
+    outputs : string list
+  }
+;;
+
+class component_graph (face : TextPainter.font) (components : component_spec list) =
   object(self)
-    inherit widget
-    
-    val mutable dragging = (None : (int * Point.t) option)
-    val frame_positions = Array.init (List.length frames)
-                            (fun _ -> 0, 0)
+    inherit widget None
+
+    val frame_positions = Array.init (List.length components) (fun _ -> 0, 0)
+    val mutable wires = ([] : (string * string) list)
+    val mutable dragging = NoDrag
     val mutable stack = new stack []
-    
+
     method private on_frame_mouse_down (frame_no : int) (offset : Point.t) =
-      dragging <- Some (frame_no, offset)
+      dragging <- Dragging_Frame (frame_no, offset)
+
+    method private build_component (spec : component_spec) =
+      new component face ~inputs:(spec.inputs) ~outputs:(spec.outputs)
+        ~on_clicked_receptacle:(fun start_port ->
+          let drag = Dragging_Wire {
+                         start_port;
+                         current_location = 0, 0
+                       } in
+          dragging <- drag)
+        ~on_released_receptacle:(fun end_port ->
+          match dragging with
+          | Dragging_Wire drag ->
+             print_endline ("Made new wire from " ^ drag.start_port
+                            ^ " to " ^ end_port);
+             wires <- (drag.start_port, end_port)::wires
+          | _ -> ())
+    
+    method private rebuild_stack () =
+      let components = List.map self#build_component components in
+      new stack (List.mapi (fun (idx : int) (content : component) ->
+                     ((new frame (content :> widget)
+                         ~on_mouse_down:(self#on_frame_mouse_down idx)) :> widget),
+                     Array.get frame_positions idx) components)
 
     initializer
-      stack <- rebuild_stack
-                 (fun idx p -> self#on_frame_mouse_down idx p)
-                 frame_positions
+      stack <- self#rebuild_stack ()
 
     method measure = stack#measure
-    method paint = stack#paint
+    
+    method paint (view : Mat2.t) (clip : Rect.t) =
+      List.iter (fun wire ->
+          let start_port, end_port = wire in
+          let start_location = stack#location_of_child start_port (0, 0) in
+          let end_location = stack#location_of_child end_port (0, 0) in
+          match start_location, end_location with
+          | Some start_location, Some end_location ->
+             let (curve : Curve.control_point list) =
+               [
+                 { point = start_location;
+                   before = 0, 0;
+                   after = Point.add (100, 0) start_location };
+                 { point = end_location;
+                   before = Point.add (-100, 0) end_location;
+                   after = 0, 0; }
+               ] in
+             let painter = CurvePainter.create curve in
+             CurvePainter.paint view clip painter;
+          | _ -> ()) wires;
+      stack#paint view clip;
     
     method handle (e : Event.t) ~(dirty : bool) =
       match e, dragging with
-      | Event.Mouse_Move (_, (x, y)), Some (frame_no, offset) ->
+      | Event.Mouse_Move (_, (x, y)), Dragging_Frame (frame_no, offset) ->
          let ox, oy = offset in
          Array.set frame_positions frame_no (x - ox, y - oy);
-         stack <- rebuild_stack
-                    (fun idx p -> self#on_frame_mouse_down idx p)
-                    frame_positions; true
-      | Event.Mouse_Up _, Some _ ->
-         dragging <- None; dirty
+         stack <- self#rebuild_stack (); true
+      | Event.Mouse_Move (_, p), Dragging_Wire drag ->
+         dragging <- Dragging_Wire { drag with current_location = p }; true
+      | Event.Mouse_Up _, Dragging_Frame _ ->
+         dragging <- NoDrag; dirty
       | _ -> stack#handle e ~dirty
 
+    method location_of_child (child_id : string) (p : Point.t) =
+      if child_id = id then Some p
+      else stack#location_of_child child_id p
+    
   end
 ;;
-
 

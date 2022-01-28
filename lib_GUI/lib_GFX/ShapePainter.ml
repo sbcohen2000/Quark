@@ -8,9 +8,8 @@ type t = { vao : int;
 ;;
 
 let curve_to_vertex_buffer (curve : Curve.path) =
-  let to_f = Float.of_int in
-  let f (x, y : Point.t) =
-    [| to_f x; to_f y |] in
+  let f (x, y : Vec2.t) =
+    [| x; y |] in
   let all_points = Array.concat (List.map f curve) in
   Bigarray.Array1.of_array Bigarray.float32 Bigarray.c_layout
     all_points
@@ -60,7 +59,7 @@ let frag =
 let create (curve : Curve.t) =
   let path = Curve.create curve in
   let shader = Shader.create ~vert ~frag (3, 3) in
-  let path' = (0, 0)::path @ [List.nth path 0] in
+  let path' = (0., 0.)::path @ [List.nth path 0] in
   let vao = Buffer.get_int (Gl.gen_vertex_arrays 1) in
   let n_verts = List.length path' in
   let vertices = curve_to_vertex_buffer path' in

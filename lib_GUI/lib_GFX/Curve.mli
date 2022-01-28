@@ -5,7 +5,7 @@ type control_point = {
   }
 
 type t = control_point list
-type path = Point.t list
+type path = Vec2.t list
 
 val create : t -> path
 

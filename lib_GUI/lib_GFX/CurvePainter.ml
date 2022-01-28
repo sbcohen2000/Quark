@@ -3,14 +3,12 @@ open Tgl4
 type t = { vao : int;
            attrs : int list;
            n_verts : int;
-           shader : Shader.t
          }
 ;;
 
 let interleave (a : Curve.path) (b : Curve.path) =
-  let to_f = Float.of_int in
-  let f (ax, ay : Point.t) (bx, by : Point.t) =
-    [| to_f ax; to_f ay; to_f bx; to_f by |] in
+  let f (ax, ay : Vec2.t) (bx, by : Vec2.t) =
+    [| ax; ay; bx; by |] in
   Array.concat (List.map2 f a b)
 ;;
 
@@ -22,7 +20,7 @@ let path_to_vertex_buffer (curve : Curve.path) =
 
 let path_to_bisector_buffer (curve : Curve.path) =
   let normals = Curve.bisectors curve in
-  let negated = List.map Point.neg normals in
+  let negated = List.map Vec2.neg normals in
   let all_points = interleave normals negated in
   let directions = Array.init (Array.length all_points)
                      (fun idx -> Float.of_int(Int.rem idx 2)) in
@@ -77,15 +75,24 @@ let frag =
    "
 ;;
 
+let shader_global = ref None
+
+let get_shader () =
+  match !shader_global with
+  | None ->
+     let shader = Shader.create ~vert ~frag (3, 3) in
+     shader_global := Some shader;
+     shader
+  | Some shader -> shader
+;;
+
 let destroy (painter : t) =
-  Shader.destroy painter.shader;
   Buffer.set_int (Gl.delete_vertex_arrays 1) painter.vao;
   List.iter (fun buffer -> 
       Buffer.delete_gl_buffer buffer) painter.attrs
 ;;
 
 let create (curve : Curve.t) =
-  let shader = Shader.create ~vert ~frag (3, 3) in
   let path = Curve.create curve in
   let vao = Buffer.get_int (Gl.gen_vertex_arrays 1) in
   let n_verts = List.length path * 2 in
@@ -109,14 +116,16 @@ let create (curve : Curve.t) =
     Gl.bind_vertex_array 0;
     Gl.bind_buffer Gl.array_buffer 0;
   end;
-  let (painter : t) = { vao; attrs = [vbo; nbo; dbo]; n_verts; shader } in
+  let (painter : t) = { vao; attrs = [vbo; nbo; dbo]; n_verts } in
   Gc.finalise destroy painter; painter
 ;;
 
 let paint (view : Mat2.t) (clip : Rect.t) (painter : t) =
-  Shader.use painter.shader;
-  Shader.set_matrix_4fv painter.shader "view" (Mat2.export view);
-  Shader.set_vec4 painter.shader "clip" (Rect.to_float clip);
+  let shader = get_shader () in
+  Shader.use shader;
+  Shader.set_matrix_4fv shader "view" (Mat2.export view);
+  Shader.set_vec4 shader "clip" (Rect.to_float clip);
+  Shader.set_float shader "stroke" 10.;
   Gl.bind_vertex_array painter.vao;
   Gl.draw_arrays Gl.triangle_strip 0 painter.n_verts;
   Gl.bind_vertex_array 0
