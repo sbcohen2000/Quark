@@ -372,8 +372,17 @@ class frame (ctx : context) (child : widget) ~(on_mouse_down : Point.t -> unit) 
       bottom_right_radius = 0;
       bottom_left_radius  = 0;
       top_left_radius     = 15;
-      color = 0.5, 0.3, 0.1;
-      border_color = Some (1., 0.6, 0.2);
+      color = 0.60, 0.01, 0.12;
+      border_color = None;
+    } in
+  let (background_style : RectPainter.style) =
+    {
+      top_right_radius    = 15;
+      bottom_right_radius = 15;
+      bottom_left_radius  = 15;
+      top_left_radius     = 15;
+      color = 0.15, 0.0, 0.03;
+      border_color = None;
     } in
   object(self)
     inherit container ctx None as super
@@ -398,8 +407,10 @@ class frame (ctx : context) (child : widget) ~(on_mouse_down : Point.t -> unit) 
       let child_rect = List.hd measurement in
       let title_height = self#scale title_height in
       let title_rect = 0, 0, Rect.width child_rect, title_height in
-      let painter = RectPainter.create [| title_rect |] in
-      RectPainter.paint view clip title_style painter;
+      let title_painter = RectPainter.create [| title_rect |] in
+      let background_painter = RectPainter.create [| Rect.union title_rect child_rect |] in
+      RectPainter.paint view clip background_style background_painter;
+      RectPainter.paint view clip title_style title_painter;
       let content_view = Mat2.move view 0 title_height in
       child#paint content_view clip
 
