@@ -168,12 +168,12 @@ type hover_state =
 class button (ctx : context) (face : TextPainter.font) (text : string) =
   let padding = 4 in
   let (normal_style : RectPainter.style) = {
-      top_right_radius = 0;
-      bottom_right_radius = 0;
-      bottom_left_radius = 0;
-      top_left_radius = 0;
+      top_right_radius    = 15;
+      bottom_right_radius = 15;
+      bottom_left_radius  = 15;
+      top_left_radius     = 15;
       color = 0.22, 0.22, 0.22;
-      border_color = Some (0.1, 0.1, 0.1)
+      border_color = Some (0.05, 0.05, 0.05)
     } in
   let (hovered_style : RectPainter.style) =
     { normal_style with color = 0.3, 0.3, 0.3 } in
@@ -368,10 +368,10 @@ class frame (ctx : context) (child : widget) ~(on_mouse_down : Point.t -> unit) 
   let title_height = 10 in
   let (title_style : RectPainter.style) =
     {
-      top_right_radius = 0;
+      top_right_radius    = 15;
       bottom_right_radius = 0;
-      bottom_left_radius = 0;
-      top_left_radius = 0;
+      bottom_left_radius  = 0;
+      top_left_radius     = 15;
       color = 0.5, 0.3, 0.1;
       border_color = Some (1., 0.6, 0.2);
     } in
@@ -454,6 +454,7 @@ class receptacle (ctx : context) (id : string)
       | _ -> dirty
 
     method location_of_child (child_id : string) (px, py : Point.t) =
+      let size = self#scale size in
       if child_id = id then Some (px + size / 2, py + size / 2)
       else None
 

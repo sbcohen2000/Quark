@@ -94,12 +94,11 @@ let main () =
       content_scale = csx;
     } in
   
-  let root = new Widgets.component_graph context face
-               [
-                 { inputs = ["a"; "b"; "c"];
-                   outputs = ["vec3"] };
-                 { inputs = ["x"; "y"; "z"];
-                   outputs = ["vec3"] };
+  let root = new Widgets.component_graph context face [
+                 { inputs = ["input 1"; "input 2"];
+                   outputs = ["output 1"] };
+                 { inputs = ["input 3"; "input 4"];
+                   outputs = ["output 2"] }
                ] in
   
   ignore (GLFW.setWindowSizeCallback ~window

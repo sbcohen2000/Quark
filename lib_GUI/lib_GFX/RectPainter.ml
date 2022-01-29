@@ -80,10 +80,11 @@ let frag =
    discard;
    }
 
-   vec2 p = (2.0 * coord * size_out - size_out) / size_out.y;
-   float d = sdRoundedBox(p, vec2(size_out.x / size_out.y - 0.1, 0.9), radii);
-   float interior = 1.0 - smoothstep(0.0, 0.05, max(d, 0.0));
-   float border = 1.0 - smoothstep(0.0, 0.05, abs(d));
+   float scale = size_out.y;
+   vec2 p = (2.0 * coord * size_out - size_out) / scale;
+   float d = sdRoundedBox(p, vec2(size_out.x / size_out.y, 1), radii / scale);
+   float interior = 1.0 - smoothstep(0.0, 4 / scale, max(d + 4 / scale, 0.0));
+   float border = 1.0 - smoothstep(0.0, 4 / scale, abs(d + 4 / scale));
    vec4 c = vec4(fill_color, 1.0);
    c = mix(c, border_color, border);
    color = vec4(c.rgb, c.a * interior);
@@ -158,7 +159,10 @@ let paint (view : Mat2.t) (clip : Rect.t) (style : style) (painter : t) =
   Shader.use shader;
   Shader.set_matrix_4fv shader "view" (Mat2.export view);
   Shader.set_vec4 shader "clip" (Rect.to_float clip);
-  Shader.set_vec4 shader "radii" (0.2, 0.2, 0.2, 0.2);
+  Shader.set_vec4 shader "radii" (Float.of_int style.bottom_right_radius,
+                                  Float.of_int style.top_right_radius,
+                                  Float.of_int style.bottom_left_radius,
+                                  Float.of_int style.top_left_radius);
   Shader.set_vec3 shader "fill_color" style.color;
   Shader.set_vec4 shader "border_color"
     (match style.border_color with
