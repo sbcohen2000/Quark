@@ -87,20 +87,29 @@ let main () =
   print_endline ("Content scale: " ^ Float.to_string csx ^ ", " ^ Float.to_string csy);
 
   let face = GFX.TextPainter.load_font
-               ~texture:"./fonts/Geneva-13.ppm"
-               ~metadata:"./fonts/Geneva-13.txt" in
+               ~texture:"./fonts/Geneva-26.ppm"
+               ~metadata:"./fonts/Geneva-26.txt" in
 
-  let root = new Widgets.component_graph face [
+  let (context : Widgets.context) =
+    {
+      content_scale = csx;
+    } in
+  
+  let root = new Widgets.component_graph context face [
                  { inputs = ["r"; "g"; "b"; "alpha"];
-                   outputs = ["color"] };
+                   outputs = ["color_"] };
                  { inputs = ["color"];
                    outputs = ["value"] };
                ] in
 
-  ignore (GLFW.setWindowSizeCallback ~window ~f:(Some (resize (root :> Widgets.widget))));
-  ignore (GLFW.setWindowContentScaleCallback ~window ~f:(Some rescale));
-  ignore (GLFW.setCursorPosCallback ~window ~f:(Some (mouse_move (root :> Widgets.widget))));
-  ignore (GLFW.setMouseButtonCallback ~window ~f:(Some (mouse_button (root :> Widgets.widget))));
+  ignore (GLFW.setWindowSizeCallback ~window
+            ~f:(Some (resize (root :> Widgets.widget))));
+  ignore (GLFW.setWindowContentScaleCallback ~window
+            ~f:(Some rescale));
+  ignore (GLFW.setCursorPosCallback ~window
+            ~f:(Some (mouse_move (root :> Widgets.widget))));
+  ignore (GLFW.setMouseButtonCallback ~window
+            ~f:(Some (mouse_button (root :> Widgets.widget))));
   
   Gl.enable Gl.blend;
   Gl.blend_func Gl.src_alpha Gl.one_minus_src_alpha;

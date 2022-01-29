@@ -39,21 +39,19 @@ let qubic_bezier (a : vec) (b : vec) (c : vec) (d : vec) (s : float) =
  * 0. and 1. *)
 let linspace (length : int) =
   let d = 1. /. (Float.of_int (length - 1)) in
-  let rec f (n : int) =
-    if n = 0 then []
-    else (d *. (Float.of_int (length - n)))::f(n - 1) in
-  f length
+  Array.init length (fun n ->
+      d *. (Float.of_int (length - n)) -. d)
 ;;
 
 let create (curve : t) =
   let rec f (curve : t) =
     match curve with
     | pa::pb::rest ->
-       let samples = linspace 10 in
        let a = Vec2.of_point pa.point
        and b = Vec2.of_point pa.after
        and c = Vec2.of_point pb.before
        and d = Vec2.of_point pb.point in
+       let samples = Array.to_list (linspace 10) in
        let path = List.map (qubic_bezier a b c d) samples in
        path::(f (pb::rest))
     | _ -> [] in

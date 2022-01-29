@@ -70,7 +70,7 @@ let frag =
    float h = stroke / (2 * 1.0);
    float alpha = min(h * edge_distance, 1);
    
-   color = vec4(0, 0, 0, alpha);
+   color = vec4(0.8, 0.8, 0.8, alpha);
    }
    "
 ;;
@@ -125,7 +125,7 @@ let paint (view : Mat2.t) (clip : Rect.t) (painter : t) =
   Shader.use shader;
   Shader.set_matrix_4fv shader "view" (Mat2.export view);
   Shader.set_vec4 shader "clip" (Rect.to_float clip);
-  Shader.set_float shader "stroke" 10.;
+  Shader.set_float shader "stroke" 3.;
   Gl.bind_vertex_array painter.vao;
   Gl.draw_arrays Gl.triangle_strip 0 painter.n_verts;
   Gl.bind_vertex_array 0
