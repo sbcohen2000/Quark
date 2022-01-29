@@ -1,21 +1,6 @@
 open GFX
 exception TODO of string
 
-module List = struct
-  include List
-  
-  exception Unequal_Lengths
-  let rec unzip = function
-    | ((a, b)::rest) -> let a_rest, b_rest = unzip rest in
-                        a::a_rest, b::b_rest
-    | [] -> ([], [])
-  ;;
-
-  let zip = List.map2 (fun a b -> a, b)
-  ;;
-end
-;;
-
 type context = {
     mutable content_scale : float
   }
@@ -24,19 +9,28 @@ type context = {
 open List
 
 class virtual widget (ctx : context) (id : string option) =
-        object
+        object(self)
           val id = match id with Some s -> s | None -> ""
           method get_id = id
           method private scale (v : int) =
             Float.to_int (Float.round (Float.of_int v *. ctx.content_scale))
           
-          method virtual measure : ?requested_width:int ->
-                                   ?requested_height:int ->
-                                   unit -> int * int
-          method virtual paint : Mat2.t -> Rect.t -> unit
+          method virtual measure_impl : requested_width:(int option) ->
+                                        requested_height:(int option) ->
+                                        Rect.t list
+          method virtual paint_impl : measurement:(Rect.t list) -> Mat2.t -> Rect.t -> unit
           method virtual handle : Event.t -> dirty:bool -> bool
           method virtual location_of_child : string -> Point.t -> Point.t option
 
+          val mutable measurement = ([] : Rect.t list)
+          method measure ?(requested_width : int option) ?(requested_height : int option) () =
+            let rects = self#measure_impl ~requested_width ~requested_height in
+            measurement <- rects;
+            let size = List.fold_left Rect.union (0, 0, 0, 0) rects in
+            Rect.width size, Rect.height size
+          
+          method paint (view : Mat2.t) (clip : Rect.t) =
+            self#paint_impl ~measurement view clip;
         end
 ;;
 
@@ -44,10 +38,11 @@ class virtual container (ctx : context) (id : string option) =
         object(self)
           inherit widget ctx id
 
-          method virtual private get_child_rects : unit -> (widget * Rect.t) list
+          method virtual private get_child_widgets : unit -> widget list
           
           method handle (e : Event.t) ~(dirty : bool) =
-            let child_widgets, child_rects = unzip (self#get_child_rects ()) in
+            let child_widgets = self#get_child_widgets () in
+            let child_rects = measurement in
             match e with
             | Event.Mouse_Down p | Event.Mouse_Up p ->
                let child_responded =
@@ -92,7 +87,8 @@ class virtual container (ctx : context) (id : string option) =
           
           method location_of_child (child_id : string) (p : Point.t) =
             if child_id = id then Some p
-            else let child_widgets, child_rects = unzip (self#get_child_rects ()) in
+            else let child_widgets = self#get_child_widgets () in
+                 let child_rects = measurement in
                  List.fold_left2 (fun location child rect ->
                      let child_position = Rect.x rect, Rect.y rect in
                      match location, child#location_of_child child_id
@@ -107,15 +103,16 @@ class spacer (ctx : context) (width : int) (height : int) =
   object
     inherit widget ctx None
 
-    method measure ?(requested_width  : int option)
-             ?(requested_height : int option) () =
-      match requested_width, requested_height with
-      | Some r_width, Some r_height -> r_width, r_height
-      | Some r_width, None -> r_width, height
-      | None, Some r_height -> width, r_height
-      | None, None -> width, height
+    method measure_impl ~(requested_width  : int option)
+             ~(requested_height : int option) =
+      let m_width, m_height = match requested_width, requested_height with
+        | Some r_width, Some r_height -> r_width, r_height
+        | Some r_width, None -> r_width, height
+        | None, Some r_height -> width, r_height
+        | None, None -> width, height in
+      [ 0, 0, m_width, m_height ]
 
-    method paint _ _ = ()
+    method paint_impl ~measurement:_ _ _ = ()
     method handle _ ~dirty = dirty
     method location_of_child (child_id : string) (p : Point.t) =
       if child_id = id then Some p else None
@@ -132,11 +129,9 @@ class label (ctx : context) (face : TextPainter.font) (text : string) =
   object
     inherit widget ctx None
 
-    val mutable measured_size = 0, 0
-    
-    method measure ?(requested_width  : int option)
-             ?(requested_height : int option) () =
-      let size = match requested_width, requested_height with
+    method measure_impl ~(requested_width  : int option)
+             ~(requested_height : int option) =
+      let m_width, m_height = match requested_width, requested_height with
         | Some width, Some height ->
            width, height
         | Some width, None ->
@@ -145,11 +140,10 @@ class label (ctx : context) (face : TextPainter.font) (text : string) =
            text_width, height
         | None, None ->
            text_width, text_height in
-      (measured_size <- size;
-       measured_size)
+      [ 0, 0, m_width, m_height ]
 
-    method paint (view : Mat2.t) (clip : Rect.t) =
-      let width, height = measured_size in
+    method paint_impl ~(measurement : Rect.t list) (view : Mat2.t) (clip : Rect.t) =
+      let _, _, width, height = List.hd measurement in
       let text' = if width < text_width then shrink width text
                   else text in
       let text_width, _ = TextPainter.measure face text' in
@@ -194,7 +188,6 @@ class button (ctx : context) (face : TextPainter.font) (text : string) =
   object(self)
     inherit widget ctx None
     
-    val mutable measured_size = 0, 0
     val mutable hover_state = Normal
 
     method private current_style =
@@ -203,7 +196,7 @@ class button (ctx : context) (face : TextPainter.font) (text : string) =
       | Hovered -> hovered_style
       | Pressed -> pressed_style
     
-    method measure ?(requested_width  : int option) ?(requested_height : int option) () =
+    method measure_impl ~(requested_width  : int option) ~(requested_height : int option) =
       let padding = self#scale padding in
       match requested_width, requested_height with
       | Some width, Some height ->
@@ -211,26 +204,22 @@ class button (ctx : context) (face : TextPainter.font) (text : string) =
          let desired_label_height = height - padding * 2 in
          ignore (child#measure ~requested_width:desired_label_width
                    ~requested_height:desired_label_height ());
-         measured_size <- width, height;
-         width, height
+         [ 0, 0, width, height ]
       | Some width, None ->
          let desired_label_width = width - padding * 2 in
          let _, label_height = child#measure ~requested_width:desired_label_width () in
-         let size = width, (label_height + padding * 2) in
-         measured_size <- size; size
-      | None,       Some height ->
+         [ 0, 0, width, (label_height + padding * 2) ]
+      | None, Some height ->
          let desired_label_height = height - padding * 2 in
          let label_width, _ = child#measure ~requested_height:desired_label_height () in
-         let size = (label_width + padding * 2), height in
-         measured_size <- size; size
+         [ 0, 0, (label_width + padding * 2), height ]
       | None, None ->
          let label_width, label_height = child#measure () in
-         let size = (label_width + padding * 2), (label_height + padding * 2) in
-         measured_size <- size; size
+         [ 0, 0, (label_width + padding * 2), (label_height + padding * 2) ]
 
-    method paint (view : Mat2.t) (clip : Rect.t) =
+    method paint_impl ~(measurement : Rect.t list) (view : Mat2.t) (clip : Rect.t) =
       let padding = self#scale padding in
-      let width, height = measured_size in
+      let _, _, width, height = List.hd measurement in
       let rect = 0, 0, width, height in
       let painter = RectPainter.create [| rect |] in
       RectPainter.paint view clip self#current_style painter;
@@ -260,51 +249,43 @@ class row (ctx : context) (children : widget list) =
   object
     inherit container ctx None
     
-    val mutable child_rects = ([] : Rect.t list)
-
-    method get_child_rects () = List.zip children child_rects
+    method get_child_widgets () = children
     
-    method measure ?(requested_width  : int option) ?(requested_height : int option) () =
-      child_rects <- [];
-      let rows =
-        match requested_width, requested_height with
-        | Some width, Some _ ->
-           let rec layout (children : widget list) (rows : Rect.t list) =
-             (match children with
-              | [] -> rows
-              | child::rest ->
-                 let curr_row = List.hd rows in
-                 let _, y, w, h = curr_row in
-                 let child_width, child_height = child#measure () in
-                 if width < w + child_width then (* make a new row *)
-                   let new_row = 0, y + h, child_width, child_height in
-                   child_rects <- (0, y + h, child_width, child_height)::child_rects;
-                   layout rest (new_row::rows)
-                 else (* add to the existing row *)
-                   let curr_row' = 0, y, w + child_width,
-                                   if child_height > h then child_height else h in
-                   child_rects <- (w, y, child_width, child_height)::child_rects;
-                   layout rest (curr_row'::(List.tl rows))) in
-           let rows = layout children [(0, 0, 0, 0)] in
-           child_rects <- List.rev child_rects; rows
-        | None, None ->
-           let width, height =
-             List.fold_left (fun (width, height) (child : widget) ->
-                 let child_width, child_height = child#measure () in
-                 child_rects <- (width, 0, child_width, child_height)::child_rects;
-                 width + child_width, max height child_height)
-               (0, 0) children in
-           let row = 0, 0, width, height in
-           child_rects <- List.rev child_rects; [row]
-        | _ -> raise (TODO "measure row with unspecified width or height") in
-      let outline = List.fold_left Rect.union (0, 0, 0, 0) rows in
-      Rect.width outline, Rect.height outline
+    method measure_impl ~(requested_width  : int option) ~(requested_height : int option) =
+      match requested_width, requested_height with
+      | Some width, Some _ ->
+         let rec layout (children : widget list) (child_rects : Rect.t list) (rows : Rect.t list) =
+           (match children with
+            | [] -> child_rects
+            | child::rest ->
+               let curr_row = List.hd rows in
+               let _, y, w, h = curr_row in
+               let child_width, child_height = child#measure () in
+               if width < w + child_width then (* make a new row *)
+                 let new_row = 0, y + h, child_width, child_height in
+                 let child_rects' = (0, y + h, child_width, child_height)::child_rects in
+                 layout rest child_rects' (new_row::rows)
+               else (* add to the existing row *)
+                 let curr_row' = 0, y, w + child_width,
+                                 if child_height > h then child_height else h in
+                 let child_rects' = (w, y, child_width, child_height)::child_rects in
+                 layout rest child_rects' (curr_row'::(List.tl rows))) in
+         let child_rects = layout children [] [(0, 0, 0, 0)] in
+         List.rev child_rects
+      | None, None ->
+         let _, child_rects =
+           List.fold_left (fun (width, rects) (child : widget) ->
+               let child_width, child_height = child#measure () in
+               width + child_width, (width, 0, child_width, child_height)::rects)
+             (0, []) children in
+         List.rev child_rects;
+      | _ -> raise (TODO "measure row with unspecified width or height")
 
-    method paint (view : Mat2.t) (clip : Rect.t) =
+    method paint_impl ~(measurement : Rect.t list) (view : Mat2.t) (clip : Rect.t) =
       List.iter2 (fun child (px, py, _, _) ->
           let child_view = Mat2.move view px py in
           child#paint child_view clip;
-        ) children child_rects
+        ) children measurement
     
   end
 ;;
@@ -313,88 +294,73 @@ class column (ctx : context) (children : widget list) =
   object
     inherit container ctx None
     
-    val mutable child_rects = ([] : Rect.t list)
-
-    method get_child_rects () = List.zip children child_rects
+    method get_child_widgets () = children
     
-    method measure ?(requested_width  : int option) ?(requested_height : int option) () =
-      child_rects <- [];
-      let rows =
-        match requested_width, requested_height with
-        | Some _, Some height ->
-           let rec layout (children : widget list) (columns : Rect.t list) =
-             (match children with
-              | [] -> columns
-              | child::rest ->
-                 let curr_col = List.hd columns in
-                 let x, _, w, h = curr_col in
-                 let child_width, child_height = child#measure () in
-                 if height < h + child_height then (* make a new row *)
-                   let new_col = x + w, 0, child_width, child_height in
-                   child_rects <- (x + w, 0, child_width, child_height)::child_rects;
-                   layout rest (new_col::columns)
-                 else (* add to the existing row *)
-                   let curr_row' = x, 0, (if child_width > w then child_width else w),
-                                   h + child_height in
-                   child_rects <- (x, h, child_width, child_height)::child_rects;
-                   layout rest (curr_row'::(List.tl columns))) in
-           let rows = layout children [(0, 0, 0, 0)] in
-           child_rects <- List.rev child_rects; rows
-        | None, None ->
-           let width, height =
-             List.fold_left (fun (width, height) (child : widget) ->
-                 let child_width, child_height = child#measure () in
-                 child_rects <- (0, height, child_width, child_height)::child_rects;
-                 max width child_width, height + child_height)
-               (0, 0) children in
-           let row = 0, 0, width, height in
-           child_rects <- List.rev child_rects; [row]
-        | _ -> raise (TODO "measure row with unspecified width or height") in
-      let outline = List.fold_left Rect.union (0, 0, 0, 0) rows in
-      Rect.width outline, Rect.height outline
+    method measure_impl ~(requested_width  : int option) ~(requested_height : int option) =
+      match requested_width, requested_height with
+      | Some _, Some height ->
+         let rec layout (children : widget list) (child_rects : Rect.t list) (columns : Rect.t list) =
+           (match children with
+            | [] -> child_rects
+            | child::rest ->
+               let curr_col = List.hd columns in
+               let x, _, w, h = curr_col in
+               let child_width, child_height = child#measure () in
+               if height < h + child_height then (* make a new row *)
+                 let new_col = x + w, 0, child_width, child_height in
+                 let child_rects' = (x + w, 0, child_width, child_height)::child_rects in
+                 layout rest child_rects' (new_col::columns)
+               else (* add to the existing row *)
+                 let curr_col' = x, 0, (if child_width > w then child_width else w),
+                                 h + child_height in
+                 let child_rects' = (x, h, child_width, child_height)::child_rects in
+                 layout rest child_rects' (curr_col'::(List.tl columns))) in
+         let child_rects = layout children [] [(0, 0, 0, 0)] in
+         List.rev child_rects
+      | None, None ->
+         let _, child_rects =
+           List.fold_left (fun (height, rects) (child : widget) ->
+               let child_width, child_height = child#measure () in
+               height + child_height, (0, height, child_width, child_height)::rects)
+             (0, []) children in
+         List.rev child_rects
+      | _ -> raise (TODO "measure row with unspecified width or height")
 
-    method paint (view : Mat2.t) (clip : Rect.t) =
+    method paint_impl ~(measurement : Rect.t list) (view : Mat2.t) (clip : Rect.t) =
       List.iter2 (fun child (px, py, _, _) ->
           let child_view = Mat2.move view px py in
           child#paint child_view clip;
-        ) children child_rects
+        ) children measurement
     
   end
 ;;
 
-
 class stack (ctx : context) (children : (widget * Point.t) list) =
-  let rec layout = function
-    | [] -> []
-    | (child, (px, py) : widget * Point.t)::rest ->
-       let child_width, child_height = child#measure () in
-       let child_rect = px, py, child_width, child_height in
-       child_rect::(layout rest) in
   object
     inherit container ctx None
     
-    val mutable child_rects = ([] : Rect.t list)
-    val mutable clip_rect = 0, 0, 0, 0
-
-    method get_child_rects () = List.map2 (fun (child, _) rect -> child, rect)
-                                  children child_rects
+    method get_child_widgets () = List.map (fun (child, _) -> child) children
     
-    method measure ?(requested_width  : int option) ?(requested_height : int option) () =
-      let max_outline = match requested_width, requested_height with
+    method measure_impl ~(requested_width  : int option) ~(requested_height : int option) =
+      let _max_outline = match requested_width, requested_height with
         | Some width, Some height -> 0, 0, width, height
         | Some width, None -> 0, 0, width, 0
         | None, Some height -> 0, 0, 0, height
         | None, None -> 0, 0, 0, 0 in
-      child_rects <- layout children;
-      clip_rect <- List.fold_left Rect.union max_outline child_rects;
-      Rect.width clip_rect, Rect.height clip_rect
+      let rec layout = function
+        | [] -> []
+        | (child, (px, py) : widget * Point.t)::rest ->
+           let child_width, child_height = child#measure () in
+           let child_rect = px, py, child_width, child_height in
+           child_rect::(layout rest) in
+      layout children;
 
-    method paint (view : Mat2.t) (clip : Rect.t) =
+    method paint_impl ~measurement:_ (view : Mat2.t) (clip : Rect.t) =
       List.iter (fun (child, (px, py)) ->
           let child_view = Mat2.move view px py in
           child#paint child_view clip
         ) children
-
+    
   end
 ;;
 
@@ -412,11 +378,9 @@ class frame (ctx : context) (child : widget) ~(on_mouse_down : Point.t -> unit) 
   object(self)
     inherit container ctx None as super
     
-    val mutable child_rect = 0, 0, 0, 0
-
-    method get_child_rects () = [child, child_rect]
+    method get_child_widgets () = [ child ]
     
-    method measure ?(requested_width  : int option) ?(requested_height : int option) () =
+    method measure_impl ~(requested_width  : int option) ~(requested_height : int option) =
       let title_height = self#scale title_height in
       let child_width, child_height = match requested_width, requested_height with
         | Some width, Some height ->
@@ -428,10 +392,10 @@ class frame (ctx : context) (child : widget) ~(on_mouse_down : Point.t -> unit) 
            child#measure ~requested_height:(height - title_height) ()
         | None, None ->
            child#measure () in
-      child_rect <- 0, title_height, child_width, child_height;
-      child_width, child_height + title_height
+      [ 0, title_height, child_width, child_height ]
 
-    method paint (view : Mat2.t) (clip : Rect.t) =
+    method paint_impl ~(measurement : Rect.t list) (view : Mat2.t) (clip : Rect.t) =
+      let child_rect = List.hd measurement in
       let title_height = self#scale title_height in
       let title_rect = 0, 0, Rect.width child_rect, title_height in
       let painter = RectPainter.create [| title_rect |] in
@@ -440,6 +404,7 @@ class frame (ctx : context) (child : widget) ~(on_mouse_down : Point.t -> unit) 
       child#paint content_view clip
 
     method! handle (e : Event.t) ~(dirty : bool) =
+      let child_rect = List.hd measurement in
       let title_height = self#scale title_height in
       let title_bar_rect = 0, 0, Rect.width child_rect, title_height in
       match e with
@@ -464,22 +429,20 @@ class receptacle (ctx : context) (id : string)
   object(self)
     inherit widget ctx (Some id)
 
-    val mutable measured_size = 0, 0
-    
-    method measure ?(requested_width : int option) ?(requested_height : int option) () =
-      let size = match requested_width, requested_height with
+    method measure_impl ~(requested_width : int option) ~(requested_height : int option) =
+      let m_width, m_height = match requested_width, requested_height with
         | Some width, Some height -> width, height
         | Some width, None -> width, (self#scale size)
         | None, Some height -> (self#scale size), height
         | None, None -> (self#scale size), (self#scale size) in
-      measured_size <- size; size
+      [ 0, 0, m_width, m_height ]
 
-    method paint (view : Mat2.t) (clip : Rect.t) =
+    method paint_impl ~(measurement : Rect.t list) (view : Mat2.t) (clip : Rect.t) =
+      let _, _, width, height = List.hd measurement in
       let size = self#scale size in
       let rect = 0, 0, size, size in
-      let mx, my = measured_size in
-      let padding_x = (mx - size) / 2 in
-      let padding_y = (my - size) / 2 in
+      let padding_x = (width - size) / 2 in
+      let padding_y = (height - size) / 2 in
       let painter = RectPainter.create [| rect |] in
       let view' = Mat2.move view padding_x padding_y in
       RectPainter.paint view' clip style painter
@@ -497,57 +460,38 @@ class receptacle (ctx : context) (id : string)
   end
 ;;
 
-class component
-        (ctx : context)
-        (face : TextPainter.font)
-        ~(inputs : string list)
-        ~(outputs : string list)
-        ~(on_clicked_receptacle : string -> unit)
-        ~(on_released_receptacle : string -> unit) =
-  object(self)
-    inherit widget ctx None
-
-    val mutable child = new spacer ctx 0 0
-
-    method private make_child () =
-      let make_input_row (input : string) =
-        (new row ctx [
-             new receptacle ctx
-               input
-               ~on_mouse_down:(fun id -> on_clicked_receptacle id)
-               ~on_mouse_up:(fun id -> on_released_receptacle id);
-             new label ctx face input
-           ] :> widget) in
-      let make_output_row (output : string) =
-        (new row ctx [
-             new label ctx face output;
-             new receptacle ctx
-               output
-               ~on_mouse_down:(fun id -> on_clicked_receptacle id)
-               ~on_mouse_up:(fun id -> on_released_receptacle id)
-           ] :> widget) in
-      let make_input_col (inputs : string list) =
-        new column ctx (List.map make_input_row inputs) in
-      let make_output_col (outputs : string list) =
-        new column ctx (List.map make_output_row outputs) in
-      child <- (new row ctx [
-                    ((make_input_col inputs) :> widget);
-                    new spacer ctx 10 0;
-                    ((make_output_col outputs) :> widget)
-                  ] :> widget)
-
-    initializer
-      self#make_child ()
-    
-    method measure = child#measure
-    method paint = child#paint
-    method handle = child#handle
-
-    method location_of_child (child_id : string) (p : Point.t) =
-      if child_id = id then Some p
-      else child#location_of_child child_id p
-    
-  end
+let component
+      (ctx : context)
+      (face : TextPainter.font)
+      ~(inputs : string list)
+      ~(outputs : string list)
+      ~(on_clicked_receptacle : string -> unit)
+      ~(on_released_receptacle : string -> unit) =
+  let make_input_row (input : string) =
+    (new row ctx [
+         new receptacle ctx
+           input
+           ~on_mouse_down:(fun id -> on_clicked_receptacle id)
+           ~on_mouse_up:(fun id -> on_released_receptacle id);
+         new label ctx face input
+       ] :> widget) in
+  let make_output_row (output : string) =
+    (new row ctx [
+         new label ctx face output;
+         new receptacle ctx
+           output
+           ~on_mouse_down:(fun id -> on_clicked_receptacle id)
+           ~on_mouse_up:(fun id -> on_released_receptacle id)
+       ] :> widget) in
+  let make_input_col (inputs : string list) =
+    new column ctx (List.map make_input_row inputs) in
+  let make_output_col (outputs : string list) =
+    new column ctx (List.map make_output_row outputs) in
+  (new row ctx [
+       ((make_input_col inputs) :> widget);
+       new spacer ctx 10 0;
+       ((make_output_col outputs) :> widget)
+     ] :> widget)
 ;;
 
 type drag_state =
@@ -579,7 +523,7 @@ class component_graph (ctx : context) (face : TextPainter.font) (components : co
       dragging <- Dragging_Frame (frame_no, offset)
 
     method private build_component (spec : component_spec) =
-      new component ctx face ~inputs:(spec.inputs) ~outputs:(spec.outputs)
+      component ctx face ~inputs:(spec.inputs) ~outputs:(spec.outputs)
         ~on_clicked_receptacle:(fun start_port ->
           let drag = Dragging_Wire {
                          start_port;
@@ -597,7 +541,7 @@ class component_graph (ctx : context) (face : TextPainter.font) (components : co
     
     method private rebuild_stack () =
       let components = List.map self#build_component components in
-      new stack ctx (List.mapi (fun (idx : int) (content : component) ->
+      new stack ctx (List.mapi (fun (idx : int) (content : widget) ->
                          ((new frame ctx (content :> widget)
                              ~on_mouse_down:(self#on_frame_mouse_down idx)) :> widget),
                          Array.get frame_positions idx) components)
@@ -605,9 +549,15 @@ class component_graph (ctx : context) (face : TextPainter.font) (components : co
     initializer
       stack <- self#rebuild_stack ()
 
-    method measure = stack#measure
+    method measure_impl ~(requested_width : int option) ~(requested_height : int option) =
+      let m_width, m_height = match requested_width, requested_height with
+        | Some width, Some height -> stack#measure ~requested_width:width ~requested_height:height ()
+        | Some width, None -> stack#measure ~requested_width:width ()
+        | None, Some height -> stack#measure ~requested_height:height ()
+        | None, None -> stack#measure () in
+      [ 0, 0, m_width, m_height ]
     
-    method paint (view : Mat2.t) (clip : Rect.t) =
+    method paint_impl ~measurement:_ (view : Mat2.t) (clip : Rect.t) =
       begin
         (match dragging with (* draw wire preview *)
          | Dragging_Wire drag ->

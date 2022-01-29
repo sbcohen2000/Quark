@@ -90,18 +90,18 @@ let main () =
                ~texture:"./fonts/Geneva-26.ppm"
                ~metadata:"./fonts/Geneva-26.txt" in
 
-  let (context : Widgets.context) =
-    {
+  let (context : Widgets.context) = {
       content_scale = csx;
     } in
   
-  let root = new Widgets.component_graph context face [
-                 { inputs = ["r"; "g"; "b"; "alpha"];
-                   outputs = ["color_"] };
-                 { inputs = ["color"];
-                   outputs = ["value"] };
+  let root = new Widgets.component_graph context face
+               [
+                 { inputs = ["a"; "b"; "c"];
+                   outputs = ["vec3"] };
+                 { inputs = ["x"; "y"; "z"];
+                   outputs = ["vec3"] };
                ] in
-
+  
   ignore (GLFW.setWindowSizeCallback ~window
             ~f:(Some (resize (root :> Widgets.widget))));
   ignore (GLFW.setWindowContentScaleCallback ~window
