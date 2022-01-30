@@ -100,7 +100,7 @@ let main () =
                  { inputs = ["input 3"; "input 4"];
                    outputs = ["output 2"] }
                ] in
-  
+
   ignore (GLFW.setWindowSizeCallback ~window
             ~f:(Some (resize (root :> Widgets.widget))));
   ignore (GLFW.setWindowContentScaleCallback ~window

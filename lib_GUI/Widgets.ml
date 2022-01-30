@@ -252,34 +252,51 @@ class row (ctx : context) (children : widget list) =
     method get_child_widgets () = children
     
     method measure_impl ~(requested_width  : int option) ~(requested_height : int option) =
-      match requested_width, requested_height with
-      | Some width, Some _ ->
-         let rec layout (children : widget list) (child_rects : Rect.t list) (rows : Rect.t list) =
-           (match children with
-            | [] -> child_rects
-            | child::rest ->
-               let curr_row = List.hd rows in
-               let _, y, w, h = curr_row in
-               let child_width, child_height = child#measure () in
-               if width < w + child_width then (* make a new row *)
-                 let new_row = 0, y + h, child_width, child_height in
-                 let child_rects' = (0, y + h, child_width, child_height)::child_rects in
-                 layout rest child_rects' (new_row::rows)
-               else (* add to the existing row *)
-                 let curr_row' = 0, y, w + child_width,
-                                 if child_height > h then child_height else h in
-                 let child_rects' = (w, y, child_width, child_height)::child_rects in
-                 layout rest child_rects' (curr_row'::(List.tl rows))) in
-         let child_rects = layout children [] [(0, 0, 0, 0)] in
-         List.rev child_rects
-      | None, None ->
-         let _, child_rects =
-           List.fold_left (fun (width, rects) (child : widget) ->
-               let child_width, child_height = child#measure () in
-               width + child_width, (width, 0, child_width, child_height)::rects)
-             (0, []) children in
-         List.rev child_rects;
-      | _ -> raise (TODO "measure row with unspecified width or height")
+      let child_rects = match requested_width, requested_height with
+        | Some width, Some _ ->
+           let rec layout (children : widget list) (child_rects : Rect.t list list) (curr_row : Rect.t) =
+             (match children with
+              | [] -> child_rects
+              | child::rest ->
+                 let _, y, w, h = curr_row in
+                 let child_width, child_height = child#measure () in
+                 if width < w + child_width then (* make a new row *)
+                   let new_row = 0, y + h, child_width, child_height in
+                   let child_rects' = match child_rects with
+                     | head::tail ->
+                        [0, y + h, child_width, child_height]::head::tail
+                     | [] ->
+                        [[0, y + h, child_width, child_height]] in
+                   layout rest child_rects' new_row
+                 else (* add to the existing row *)
+                   let curr_row' = 0, y, w + child_width,
+                                   if child_height > h then child_height else h in
+                   let child_rects' = match child_rects with
+                     | head::tail ->
+                        ((w, y, child_width, child_height)::head)::tail
+                     | [] ->
+                        [[w, y, child_width, child_height]] in
+                   layout rest child_rects' curr_row') in
+           layout children [] (0, 0, 0, 0)
+        | None, None ->
+           let _, child_rects =
+             List.fold_left (fun (width, rects) (child : widget) ->
+                 let child_width, child_height = child#measure () in
+                 width + child_width, (width, 0, child_width, child_height)::rects)
+               (0, []) children in [ child_rects ]
+        | _ -> raise (TODO "measure row with unspecified width or height") in
+      let rec align (child_rects : Rect.t list list) =
+        match child_rects with
+        | [] -> []
+        | row::rest ->
+           let row_height = Rect.height 
+                              (List.fold_left Rect.union (0, 0, 0, 0) row) in
+           let row' = List.map (fun rect ->
+                          let padding = (row_height - Rect.height rect) / 2 in
+                          let x, y, w, h = rect in
+                          x, padding + y, w, h) row in
+           row'::(align rest) in
+      List.rev (List.concat (align child_rects))
 
     method paint_impl ~(measurement : Rect.t list) (view : Mat2.t) (clip : Rect.t) =
       List.iter2 (fun child (px, py, _, _) ->
@@ -429,14 +446,6 @@ class receptacle (ctx : context) (id : string)
         ~(on_mouse_down : string -> unit)
         ~(on_mouse_up : string -> unit) =
   let size = 10 in
-  let (style : RectPainter.style) = {
-      top_right_radius = size / 2;
-      bottom_right_radius = size / 2;
-      bottom_left_radius = size / 2;
-      top_left_radius = size / 2;
-      color = 0.8, 0.8, 0.8;
-      border_color = Some (0.5, 0.5, 0.5);
-    } in
   object(self)
     inherit widget ctx (Some id)
 
@@ -451,6 +460,14 @@ class receptacle (ctx : context) (id : string)
     method paint_impl ~(measurement : Rect.t list) (view : Mat2.t) (clip : Rect.t) =
       let _, _, width, height = List.hd measurement in
       let size = self#scale size in
+      let (style : RectPainter.style) = {
+          top_right_radius = size;
+          bottom_right_radius = size;
+          bottom_left_radius = size;
+          top_left_radius = size;
+          color = 0.8, 0.8, 0.8;
+          border_color = Some (0.1, 0.1, 0.1);
+        } in
       let rect = 0, 0, size, size in
       let padding_x = (width - size) / 2 in
       let padding_y = (height - size) / 2 in
