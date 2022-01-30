@@ -423,9 +423,14 @@ class frame (ctx : context) (child : widget) ~(on_mouse_down : Point.t -> unit) 
     method paint_impl ~(measurement : Rect.t list) (view : Mat2.t) (clip : Rect.t) =
       let child_rect = List.hd measurement in
       let title_height = self#scale title_height in
-      let title_rect = 0, 0, Rect.width child_rect, title_height in
+      let title_rect = (self#scale 5), 0,
+                       Rect.width child_rect - (self#scale 10),
+                       title_height in
+      let background_rect =
+        let x, y, w, h = Rect.union title_rect child_rect in
+        x + (self#scale 5), y, w - (self#scale 10), h in
       let title_painter = RectPainter.create [| title_rect |] in
-      let background_painter = RectPainter.create [| Rect.union title_rect child_rect |] in
+      let background_painter = RectPainter.create [| background_rect |] in
       RectPainter.paint view clip background_style background_painter;
       RectPainter.paint view clip title_style title_painter;
       let content_view = Mat2.move view 0 title_height in
@@ -502,11 +507,13 @@ let component
            input
            ~on_mouse_down:(fun id -> on_clicked_receptacle id)
            ~on_mouse_up:(fun id -> on_released_receptacle id);
+         new spacer ctx 10 0;
          new label ctx face input
        ] :> widget) in
   let make_output_row (output : string) =
     (new row ctx [
          new label ctx face output;
+         new spacer ctx 10 0;
          new receptacle ctx
            output
            ~on_mouse_down:(fun id -> on_clicked_receptacle id)
