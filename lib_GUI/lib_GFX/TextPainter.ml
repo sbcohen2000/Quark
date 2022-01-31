@@ -18,7 +18,6 @@ type font = {
 ;;
 
 type t = {
-    face : font;
     vao : int;
     attrs : int list;
     n_rects : int
@@ -177,6 +176,20 @@ let load_font ~(texture : string) ~(metadata : string) =
   Gc.finalise destroy_font face; face
 ;;
 
+let face_global = ref None
+;;
+
+let get_face () =
+  match !face_global with
+  | None ->
+     let face = load_font
+                  ~texture:"./fonts/Geneva-13.ppm"
+                  ~metadata:"./fonts/Geneva-13.txt" in
+     face_global := Some face;
+     face
+  | Some face -> face
+;;
+
 (* returns the new pen_x location along with the glyph's rect *)
 let rect_of_char (face : font) (c : char) (pen_x : int) (pen_y : int) =
   let metrics = Hashtbl.find face.metadata c in
@@ -216,14 +229,16 @@ let destroy_painter (painter : t) =
       Buffer.delete_gl_buffer buffer) painter.attrs
 ;;
 
-let measure (face : font) (text : string) =
+let measure (text : string) =
+  let face = get_face () in
   Seq.fold_left (fun pen_x c ->
       let pen_x', _ = rect_of_char face c pen_x 0 in
       pen_x') 0 (String.to_seq text),
   face.texture_buffer_height
 ;;
 
-let create (px, py : Point.t) (face : font) (text : string) =
+let create (px, py : Point.t) (text : string) =
+  let face = get_face () in
   let pen_y = py in
   let pen_x = ref px in
   let rects = Array.init (String.length text) (fun idx ->
@@ -257,23 +272,24 @@ let create (px, py : Point.t) (face : font) (text : string) =
     Gl.bind_vertex_array 0;
     Gl.bind_buffer Gl.array_buffer 0;
   end;
-  let (painter : t) = { face; vao; attrs = [vbo; pos_buf;
-                                            size_buf; offset_buf];
+  let (painter : t) = { vao; attrs = [vbo; pos_buf;
+                                      size_buf; offset_buf];
                         n_rects } in
   Gc.finalise destroy_painter painter; painter
 ;;
 
 let paint (view : Mat2.t) (clip : Rect.t) (painter : t) =
-  Shader.use painter.face.shader;
-  Shader.set_matrix_4fv painter.face.shader "view" (Mat2.export view);
-  Shader.set_vec4 painter.face.shader "clip" (Rect.to_float clip);
-  Shader.set_int painter.face.shader "font_texture" 0;
-  Shader.set_float painter.face.shader "font_texture_length"
-    (Float.of_int painter.face.texture_buffer_width);
-  Shader.set_float painter.face.shader "font_texture_height"
-    (Float.of_int painter.face.texture_buffer_height);
+  let face = get_face () in
+  Shader.use face.shader;
+  Shader.set_matrix_4fv face.shader "view" (Mat2.export view);
+  Shader.set_vec4 face.shader "clip" (Rect.to_float clip);
+  Shader.set_int face.shader "font_texture" 0;
+  Shader.set_float face.shader "font_texture_length"
+    (Float.of_int face.texture_buffer_width);
+  Shader.set_float face.shader "font_texture_height"
+    (Float.of_int face.texture_buffer_height);
   Gl.active_texture Gl.texture0;
-  Gl.bind_texture Gl.texture_2d painter.face.texture_buffer;
+  Gl.bind_texture Gl.texture_2d face.texture_buffer;
   Gl.bind_vertex_array painter.vao;
   Gl.draw_arrays_instanced Gl.triangle_fan 0 4 painter.n_rects;
   Gl.bind_vertex_array 0

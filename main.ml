@@ -13,8 +13,45 @@ let set_content_size, get_content_size =
   fun () -> !size
 ;;
 
-let paint (root : Widgets.widget) (window : GLFW.window) =
-  (* print_endline "repaint!"; *)
+let root_node = ref None
+
+let get_root_node (ctx : Widgets.context) =
+  match !root_node with
+  | None -> new Widgets.label ctx "Missing Root Node"
+  | Some root -> root
+;;
+
+let rec set_root_node
+          (context : Widgets.context)
+          ~(components : Widgets.component_spec list)
+          ~(wires : (string * string) list) =
+  let new_root = new Widgets.component_graph context
+                   ~components ~wires
+                   ~on_move:(fun (component_no, location) ->
+                     set_root_node context
+                       ~components:(List.mapi (fun n component ->
+                                        if n = component_no then
+                                          ({ component with location; } : Widgets.component_spec)
+                                        else component) components)
+                       ~wires)
+                   ~on_new_wire:(fun (source, destination) ->
+                     set_root_node context ~components
+                       ~wires:((source, destination)::wires))
+                   ~on_delete_wire:(fun (source, destination) ->
+                     set_root_node context ~components
+                       ~wires:(List.filter (fun (src, dst) ->
+                                   not (source = src && destination = dst)) wires))
+                   ~on_move_wire:(fun (old_dst, new_dst) ->
+                     set_root_node context ~components
+                       ~wires:(List.map (fun (src, dst) ->
+                                   if dst = old_dst then src, new_dst
+                                   else src, dst) wires)) in
+  ignore (new_root#measure ());
+  root_node := Some (new_root)
+;;
+
+let paint (ctx : Widgets.context) (window : GLFW.window) =
+  let root = get_root_node ctx in
   Gl.clear_color 0.1 0.1 0.1 1.;
   Gl.clear Gl.color_buffer_bit;
   let window_width, window_height = get_content_size () in
@@ -27,9 +64,9 @@ let paint (root : Widgets.widget) (window : GLFW.window) =
   GLFW.swapBuffers ~window;
 ;;
 
-let resize (root : Widgets.widget) window width height =
+let resize (ctx : Widgets.context) window width height =
   set_content_size width height;
-  paint root window;
+  paint ctx window;
 ;;
 
 let rescale _window csx csy =
@@ -46,21 +83,23 @@ let mouse_to_coord_space (xpos : float) (ypos : float) =
 let last_mouse_move = ref (0, 0)
 ;;
 
-let mouse_move (root : Widgets.widget) window xpos ypos =
+let mouse_move (ctx : Widgets.context) window xpos ypos =
+  let root = get_root_node ctx in
   let p = mouse_to_coord_space xpos ypos in
   let event = Event.Mouse_Move (!last_mouse_move, p) in
   let dirty = root#handle event ~dirty:false in
-  if dirty then paint root window;
+  if dirty then paint ctx window;
   last_mouse_move := p
 ;;
 
-let mouse_button (root : Widgets.widget) window _button was_press _modifiers =
+let mouse_button (ctx : Widgets.context) window _button was_press _modifiers =
+  let root = get_root_node ctx in
   let xpos, ypos = GLFW.getCursorPos ~window in
   let p = mouse_to_coord_space xpos ypos in
   let event = if was_press then Event.Mouse_Down p
               else Event.Mouse_Up p in
   let dirty = root#handle event ~dirty:false in
-  if dirty then paint root window
+  if dirty then paint ctx window
 ;;
 
 let gl_version_string () =
@@ -86,34 +125,43 @@ let main () =
   print_endline ("OpenGL version: " ^ gl_version);
   print_endline ("Content scale: " ^ Float.to_string csx ^ ", " ^ Float.to_string csy);
 
-  let face = GFX.TextPainter.load_font
-               ~texture:"./fonts/Geneva-26.ppm"
-               ~metadata:"./fonts/Geneva-26.txt" in
-
   let (context : Widgets.context) = {
       content_scale = csx;
     } in
-  
-  let root = new Widgets.component_graph context face [
-                 { inputs = ["input 1"; "input 2"];
-                   outputs = ["output 1"] };
-                 { inputs = ["input 3"; "input 4"];
-                   outputs = ["output 2"] }
-               ] in
 
+  set_root_node context
+    ~components:[
+      { location = 100, 100;
+        inputs = ["a"; "b"];
+        outputs = ["c"] };
+      { location = 200, 100;
+        inputs = ["d"; "e"];
+        outputs = ["f"] };
+      { location = 300, 100;
+        inputs = ["g"; "h"];
+        outputs = ["i"] };
+      { location = 400, 100;
+        inputs = ["j"; "k"];
+        outputs = ["l"] };
+      { location = 500, 100;
+        inputs = ["m"; "n"];
+        outputs = ["o"] }
+    ]
+    ~wires:[];
+  
   ignore (GLFW.setWindowSizeCallback ~window
-            ~f:(Some (resize (root :> Widgets.widget))));
+            ~f:(Some (resize context)));
   ignore (GLFW.setWindowContentScaleCallback ~window
             ~f:(Some rescale));
   ignore (GLFW.setCursorPosCallback ~window
-            ~f:(Some (mouse_move (root :> Widgets.widget))));
+            ~f:(Some (mouse_move context)));
   ignore (GLFW.setMouseButtonCallback ~window
-            ~f:(Some (mouse_button (root :> Widgets.widget))));
+            ~f:(Some (mouse_button context)));
   
   Gl.enable Gl.blend;
   Gl.blend_func Gl.src_alpha Gl.one_minus_src_alpha;
 
-  paint (root :> Widgets.widget) window;
+  paint context window;
   while not (GLFW.windowShouldClose ~window) do
     GLFW.waitEvents ();
   done

@@ -100,16 +100,16 @@ class virtual container (ctx : context) (id : string option) =
 ;;
 
 class spacer (ctx : context) (width : int) (height : int) =
-  object
+  object(self)
     inherit widget ctx None
 
     method measure_impl ~(requested_width  : int option)
              ~(requested_height : int option) =
       let m_width, m_height = match requested_width, requested_height with
         | Some r_width, Some r_height -> r_width, r_height
-        | Some r_width, None -> r_width, height
-        | None, Some r_height -> width, r_height
-        | None, None -> width, height in
+        | Some r_width, None -> r_width, self#scale height
+        | None, Some r_height -> self#scale width, r_height
+        | None, None -> self#scale width, self#scale height in
       [ 0, 0, m_width, m_height ]
 
     method paint_impl ~measurement:_ _ _ = ()
@@ -119,10 +119,10 @@ class spacer (ctx : context) (width : int) (height : int) =
   end
 ;;
 
-class label (ctx : context) (face : TextPainter.font) (text : string) =
-  let text_width, text_height = TextPainter.measure face text in
+class label (ctx : context) (text : string) =
+  let text_width, text_height = TextPainter.measure text in
   let rec shrink (requested_width : int) (text : string) =
-    let width, _ = TextPainter.measure face text in
+    let width, _ = TextPainter.measure text in
     if width <= requested_width then text
     else let text' = String.sub text 0 (String.length text - 1) in
          shrink requested_width text' in
@@ -146,9 +146,9 @@ class label (ctx : context) (face : TextPainter.font) (text : string) =
       let _, _, width, height = List.hd measurement in
       let text' = if width < text_width then shrink width text
                   else text in
-      let text_width, _ = TextPainter.measure face text' in
+      let text_width, _ = TextPainter.measure text' in
       let left_padding = Int.of_float (Float.floor (Float.of_int (width - text_width) /. 2.)) in
-      let painter = TextPainter.create (left_padding, height / 2) face text' in
+      let painter = TextPainter.create (left_padding, height / 2) text' in
       TextPainter.paint view clip painter
 
     method handle _ ~dirty = dirty
@@ -165,32 +165,32 @@ type hover_state =
   | Pressed
 ;;
 
-class button (ctx : context) (face : TextPainter.font) (text : string) =
+class button (ctx : context) (text : string) =
   let padding = 4 in
-  let (normal_style : RectPainter.style) = {
-      top_right_radius    = 15;
-      bottom_right_radius = 15;
-      bottom_left_radius  = 15;
-      top_left_radius     = 15;
-      color = 0.22, 0.22, 0.22;
-      border_color = Some (0.05, 0.05, 0.05)
-    } in
-  let (hovered_style : RectPainter.style) =
-    { normal_style with color = 0.3, 0.3, 0.3 } in
-  let (pressed_style : RectPainter.style) =
-    let color = 0.38, 0.52, 0.85 in
-    { normal_style with
-      color;
-      border_color = Some (0.38 *. 0.5,
-                           0.52 *. 0.5,
-                           0.85 *. 0.5) } in
-  let child = new label ctx face text in
+  let child = new label ctx text in
   object(self)
     inherit widget ctx None
     
     val mutable hover_state = Normal
 
     method private current_style =
+      let (normal_style : RectPainter.style) = {
+          top_right_radius    = self#scale 7;
+          bottom_right_radius = self#scale 7;
+          bottom_left_radius  = self#scale 7;
+          top_left_radius     = self#scale 7;
+          color = 0.22, 0.22, 0.22;
+          border_color = Some (0.05, 0.05, 0.05)
+        } in
+      let (hovered_style : RectPainter.style) =
+        { normal_style with color = 0.3, 0.3, 0.3 } in
+      let (pressed_style : RectPainter.style) =
+        let color = 0.38, 0.52, 0.85 in
+        { normal_style with
+          color;
+          border_color = Some (0.38 *. 0.5,
+                               0.52 *. 0.5,
+                               0.85 *. 0.5) } in
       match hover_state with
       | Normal -> normal_style
       | Hovered -> hovered_style
@@ -383,24 +383,6 @@ class stack (ctx : context) (children : (widget * Point.t) list) =
 
 class frame (ctx : context) (child : widget) ~(on_mouse_down : Point.t -> unit) =
   let title_height = 10 in
-  let (title_style : RectPainter.style) =
-    {
-      top_right_radius    = 15;
-      bottom_right_radius = 0;
-      bottom_left_radius  = 0;
-      top_left_radius     = 15;
-      color = 0.60, 0.01, 0.12;
-      border_color = None;
-    } in
-  let (background_style : RectPainter.style) =
-    {
-      top_right_radius    = 15;
-      bottom_right_radius = 15;
-      bottom_left_radius  = 15;
-      top_left_radius     = 15;
-      color = 0.15, 0.0, 0.03;
-      border_color = None;
-    } in
   object(self)
     inherit container ctx None as super
     
@@ -421,6 +403,24 @@ class frame (ctx : context) (child : widget) ~(on_mouse_down : Point.t -> unit) 
       [ 0, title_height, child_width, child_height ]
 
     method paint_impl ~(measurement : Rect.t list) (view : Mat2.t) (clip : Rect.t) =
+      let (title_style : RectPainter.style) =
+        {
+          top_right_radius    = self#scale 7;
+          bottom_right_radius = 0;
+          bottom_left_radius  = 0;
+          top_left_radius     = self#scale 7;
+          color = 0.60, 0.01, 0.12;
+          border_color = None;
+        } in
+      let (background_style : RectPainter.style) =
+        {
+          top_right_radius    = self#scale 7;
+          bottom_right_radius = self#scale 7;
+          bottom_left_radius  = self#scale 7;
+          top_left_radius     = self#scale 7;
+          color = 0.15, 0.0, 0.03;
+          border_color = None;
+        } in
       let child_rect = List.hd measurement in
       let title_height = self#scale title_height in
       let title_rect = (self#scale 5), 0,
@@ -496,7 +496,6 @@ class receptacle (ctx : context) (id : string)
 
 let component
       (ctx : context)
-      (face : TextPainter.font)
       ~(inputs : string list)
       ~(outputs : string list)
       ~(on_clicked_receptacle : string -> unit)
@@ -507,13 +506,13 @@ let component
            input
            ~on_mouse_down:(fun id -> on_clicked_receptacle id)
            ~on_mouse_up:(fun id -> on_released_receptacle id);
-         new spacer ctx 10 0;
-         new label ctx face input
+         new spacer ctx 5 0;
+         new label ctx input
        ] :> widget) in
   let make_output_row (output : string) =
     (new row ctx [
-         new label ctx face output;
-         new spacer ctx 10 0;
+         new label ctx output;
+         new spacer ctx 5 0;
          new receptacle ctx
            output
            ~on_mouse_down:(fun id -> on_clicked_receptacle id)
@@ -532,55 +531,92 @@ let component
 
 type drag_state =
   | NoDrag
-  | Dragging_Frame of int * Point.t
+  | Dragging_Frame of {
+      frame_no : int;
+      offset : Point.t;
+      current_location : Point.t
+    }
   | Dragging_Wire of {
       start_port : string;
+      current_location : Point.t
+    }
+  | Moving_Wire of {
+      start_port : string;
+      end_port : string;
       current_location : Point.t
     }
 ;;
 
 type component_spec =
   {
-    inputs : string list;
-    outputs : string list
+    location : Point.t;
+    inputs   : string list;
+    outputs  : string list
   }
 ;;
 
-class component_graph (ctx : context) (face : TextPainter.font) (components : component_spec list) =
+class component_graph (ctx : context)
+        ~(components     : component_spec list)
+        ~(wires          : (string * string) list)
+        ~(on_move        : int * Point.t -> unit)
+        ~(on_new_wire    : string * string -> unit)
+        ~(on_delete_wire : string * string -> unit)
+        ~(on_move_wire   : string * string -> unit) =
   object(self)
     inherit widget ctx None
 
-    val frame_positions = Array.init (List.length components) (fun _ -> 0, 0)
-    val mutable wires = ([] : (string * string) list)
     val mutable dragging = NoDrag
     val mutable stack = new stack ctx []
 
     method private on_frame_mouse_down (frame_no : int) (offset : Point.t) =
-      dragging <- Dragging_Frame (frame_no, offset)
+      dragging <- Dragging_Frame {
+                      frame_no; offset;
+                      current_location = 0, 0
+                    }
 
+    method private wire_with_destination (port : string) =
+      List.find_opt (fun (_, destination) ->
+          destination = port) wires
+
+    val mutable move_destination = None;
     method private build_component (spec : component_spec) =
-      component ctx face ~inputs:(spec.inputs) ~outputs:(spec.outputs)
-        ~on_clicked_receptacle:(fun start_port ->
-          let drag = Dragging_Wire {
-                         start_port;
-                         current_location = 0, 0
-                       } in
-          dragging <- drag)
+      component ctx ~inputs:(spec.inputs) ~outputs:(spec.outputs)
+        ~on_clicked_receptacle:(fun port ->
+          match self#wire_with_destination port with
+          | Some (start_port, end_port) -> (* wire already exists *)
+             let drag = Moving_Wire {
+                            start_port;
+                            end_port;
+                            current_location = 0, 0
+                          } in
+             dragging <- drag
+          | None -> (* make a new wire *)
+             let drag = Dragging_Wire {
+                            start_port = port;
+                            current_location = 0, 0
+                          } in
+             dragging <- drag)
         ~on_released_receptacle:(fun end_port ->
           match dragging with
           | Dragging_Wire drag ->
-             print_endline ("Made new wire from " ^ drag.start_port
-                            ^ " to " ^ end_port);
-             wires <- (drag.start_port, end_port)::wires;
+             on_new_wire (drag.start_port, end_port);
              dragging <- NoDrag;
-          | _ -> ())
+          | Moving_Wire _ ->
+             move_destination <- Some end_port;
+             dragging <- NoDrag;
+          | _ -> ()),
+      spec.location
     
     method private rebuild_stack () =
       let components = List.map self#build_component components in
-      new stack ctx (List.mapi (fun (idx : int) (content : widget) ->
+      new stack ctx (List.mapi (fun (idx : int) (content, location : widget * Point.t) ->
                          ((new frame ctx (content :> widget)
                              ~on_mouse_down:(self#on_frame_mouse_down idx)) :> widget),
-                         Array.get frame_positions idx) components)
+                         match dragging with
+                         | Dragging_Frame f when f.frame_no = idx ->
+                            Point.sub f.current_location f.offset
+                         | _ -> location
+                       ) components)
 
     initializer
       stack <- self#rebuild_stack ()
@@ -594,62 +630,83 @@ class component_graph (ctx : context) (face : TextPainter.font) (components : co
       [ 0, 0, m_width, m_height ]
     
     method paint_impl ~measurement:_ (view : Mat2.t) (clip : Rect.t) =
-      begin
-        (match dragging with (* draw wire preview *)
-         | Dragging_Wire drag ->
-            let start_location = stack#location_of_child drag.start_port (0, 0) in
-            (match start_location with
-             | Some start_location ->
-                let x_distance = Int.abs (fst drag.current_location - fst start_location) in
-                let control_point_length = min (x_distance / 2) 100 in
-                let (curve : Curve.control_point list) =
-                  [
-                    { point = start_location;
-                      before = 0, 0;
-                      after = Point.add (control_point_length, 0) start_location };
-                    { point = drag.current_location;
-                      before = Point.add (-control_point_length, 0) drag.current_location;
-                      after = 0, 0; }
-                  ] in
-                let painter = CurvePainter.create curve in
-                CurvePainter.paint view clip painter;
-             | _ -> ())
-         | _ -> ());
-        List.iter (fun wire -> (* draw existing wires *)
-            let start_port, end_port = wire in
-            let start_location = stack#location_of_child start_port (0, 0) in
-            let end_location = stack#location_of_child end_port (0, 0) in
-            match start_location, end_location with
-            | Some start_location, Some end_location ->
-               let x_distance = Int.abs (fst end_location - fst start_location) in
-               let control_point_length = min (x_distance / 2) 100 in
+      begin (* draw drag preview *)
+        let preview_data = match dragging with
+          | Dragging_Wire drag -> Some (drag.start_port, drag.current_location)
+          | Moving_Wire drag -> Some (drag.start_port, drag.current_location)
+          | _ -> None in
+        match preview_data with
+        | Some (start_port, current_location) ->
+           let start_location = stack#location_of_child start_port (0, 0) in
+           (match start_location with
+            | Some start_location ->
+               let distance = Float.to_int (Point.distance current_location start_location) in
+               let control_point_length = min (distance / 2) 100 in
                let (curve : Curve.control_point list) =
                  [
                    { point = start_location;
                      before = 0, 0;
                      after = Point.add (control_point_length, 0) start_location };
-                   { point = end_location;
-                     before = Point.add (-control_point_length, 0) end_location;
+                   { point = current_location;
+                     before = Point.add (-control_point_length, 0) current_location;
                      after = 0, 0; }
                  ] in
                let painter = CurvePainter.create curve in
                CurvePainter.paint view clip painter;
-            | _ -> ()) wires;
+            | _ -> ())
+        | None -> ()
+      end;
+      begin
+        List.iter (fun wire -> (* draw existing wires *)
+            let start_port, end_port = wire in
+            match dragging with
+            | Moving_Wire drag when drag.start_port = start_port &&
+                                      drag.end_port = end_port -> ()
+            | _ ->
+               let start_location = stack#location_of_child start_port (0, 0) in
+               let end_location = stack#location_of_child end_port (0, 0) in
+               match start_location, end_location with
+               | Some start_location, Some end_location ->
+                  let distance = Float.to_int (Point.distance end_location start_location) in
+                  let control_point_length = min (distance / 2) 100 in
+                  let (curve : Curve.control_point list) =
+                    [
+                      { point = start_location;
+                        before = 0, 0;
+                        after = Point.add (control_point_length, 0) start_location };
+                      { point = end_location;
+                        before = Point.add (-control_point_length, 0) end_location;
+                        after = 0, 0; }
+                    ] in
+                  let painter = CurvePainter.create curve in
+                  CurvePainter.paint view clip painter;
+               | _ -> ()) wires;
         stack#paint view clip; (* draw stack *)
       end
     
     method handle (e : Event.t) ~(dirty : bool) =
       match e, dragging with
-      | Event.Mouse_Move (_, (x, y)), Dragging_Frame (frame_no, offset) ->
-         let ox, oy = offset in
-         Array.set frame_positions frame_no (x - ox, y - oy);
+      | Event.Mouse_Move (_, (x, y)), Dragging_Frame drag ->
+         dragging <- Dragging_Frame { drag with current_location = x, y };
          stack <- self#rebuild_stack (); true
       | Event.Mouse_Move (_, p), Dragging_Wire drag ->
          dragging <- Dragging_Wire { drag with current_location = p }; true
-      | Event.Mouse_Up _, Dragging_Frame _ ->
-         dragging <- NoDrag; dirty
+      | Event.Mouse_Move (_, p), Moving_Wire drag ->
+         dragging <- Moving_Wire { drag with current_location = p }; true
+      | Event.Mouse_Up _, Dragging_Frame drag ->
+         dragging <- NoDrag;
+         on_move (drag.frame_no, Point.sub drag.current_location drag.offset);
+         dirty
       | Event.Mouse_Up _, Dragging_Wire _ ->
          ignore (stack#handle e ~dirty);
+         dragging <- NoDrag; true
+      | Event.Mouse_Up _, Moving_Wire drag ->
+         ignore (stack#handle e ~dirty);
+
+         (match move_destination with
+          | None -> on_delete_wire (drag.start_port, drag.end_port);
+          | Some dst -> on_move_wire (drag.end_port, dst));
+         move_destination <- None;
          dragging <- NoDrag; true
       | _ -> stack#handle e ~dirty
 
