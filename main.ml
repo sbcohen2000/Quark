@@ -13,45 +13,61 @@ let set_content_size, get_content_size =
   fun () -> !size
 ;;
 
-let root_node = ref None
-
-let get_root_node (ctx : Widgets.context) =
-  match !root_node with
-  | None -> new Widgets.label ctx "Missing Root Node"
-  | Some root -> root
+type message = Frame_Moved of int * GFX.Point.t
+             | New_Wire of string * string
+             | Delete_Wire of string * string
+             | Move_Wire of string * string
+             | Button_Pressed of string
 ;;
 
-let rec set_root_node
-          (context : Widgets.context)
-          ~(components : Widgets.component_spec list)
-          ~(wires : (string * string) list) =
-  let new_root = new Widgets.component_graph context
-                   ~components ~wires
-                   ~on_move:(fun (component_no, location) ->
-                     set_root_node context
-                       ~components:(List.mapi (fun n component ->
-                                        if n = component_no then
-                                          ({ component with location; } : Widgets.component_spec)
-                                        else component) components)
-                       ~wires)
-                   ~on_new_wire:(fun (source, destination) ->
-                     set_root_node context ~components
-                       ~wires:((source, destination)::wires))
-                   ~on_delete_wire:(fun (source, destination) ->
-                     set_root_node context ~components
-                       ~wires:(List.filter (fun (src, dst) ->
-                                   not (source = src && destination = dst)) wires))
-                   ~on_move_wire:(fun (old_dst, new_dst) ->
-                     set_root_node context ~components
-                       ~wires:(List.map (fun (src, dst) ->
-                                   if dst = old_dst then src, new_dst
-                                   else src, dst) wires)) in
-  ignore (new_root#measure ());
-  root_node := Some (new_root)
+type model = {
+    counter : int;
+  }
 ;;
 
-let paint (ctx : Widgets.context) (window : GLFW.window) =
-  let root = get_root_node ctx in
+(* handler : model -> message -> model *)
+let handle (model : model) = function
+  | Button_Pressed "increment" ->
+     { counter = model.counter + 1 }
+  | Button_Pressed "decrement" ->
+     { counter = model.counter - 1 }
+  | _ -> model
+;;
+
+(* handle_all : context -> model -> model *)
+let rec handle_all (ctx : message Widgets.context) (model : model) =
+  if Queue.is_empty ctx.messages then model
+  else handle_all ctx (handle model (Queue.take ctx.messages))
+;;
+
+(* view : context -> model -> widget *)
+let view (ctx : message Widgets.context) (m : model) =
+  new Widgets.row ctx [
+      new Widgets.button ctx
+        ~on_press:(fun () -> Button_Pressed "increment")
+        "increment";
+      new Widgets.button ctx
+        ~on_press:(fun () -> Button_Pressed "decrement")
+        "decrement";
+      new Widgets.label ctx (Int.to_string m.counter);
+    ]
+;;
+
+let get_root, set_root =
+  let root = ref None in
+  (fun () ->
+  match !root with
+  | None -> new Widgets.label {
+                content_scale = 1.;
+                messages = Queue.create ()
+              } "no root"
+  | Some root -> root),
+  fun (widget : Widgets.widget) ->
+  root := Some widget
+;;
+
+let paint (window : GLFW.window) =
+  let root = get_root () in
   Gl.clear_color 0.1 0.1 0.1 1.;
   Gl.clear Gl.color_buffer_bit;
   let window_width, window_height = get_content_size () in
@@ -64,9 +80,9 @@ let paint (ctx : Widgets.context) (window : GLFW.window) =
   GLFW.swapBuffers ~window;
 ;;
 
-let resize (ctx : Widgets.context) window width height =
+let resize window width height =
   set_content_size width height;
-  paint ctx window;
+  paint window;
 ;;
 
 let rescale _window csx csy =
@@ -83,23 +99,23 @@ let mouse_to_coord_space (xpos : float) (ypos : float) =
 let last_mouse_move = ref (0, 0)
 ;;
 
-let mouse_move (ctx : Widgets.context) window xpos ypos =
-  let root = get_root_node ctx in
+let mouse_move window xpos ypos =
+  let root = get_root () in
   let p = mouse_to_coord_space xpos ypos in
   let event = Event.Mouse_Move (!last_mouse_move, p) in
   let dirty = root#handle event ~dirty:false in
-  if dirty then paint ctx window;
+  if dirty then paint window;
   last_mouse_move := p
 ;;
 
-let mouse_button (ctx : Widgets.context) window _button was_press _modifiers =
-  let root = get_root_node ctx in
+let mouse_button window _button was_press _modifiers =
+  let root = get_root () in
   let xpos, ypos = GLFW.getCursorPos ~window in
   let p = mouse_to_coord_space xpos ypos in
   let event = if was_press then Event.Mouse_Down p
               else Event.Mouse_Up p in
   let dirty = root#handle event ~dirty:false in
-  if dirty then paint ctx window
+  if dirty then paint window
 ;;
 
 let gl_version_string () =
@@ -125,46 +141,36 @@ let main () =
   print_endline ("OpenGL version: " ^ gl_version);
   print_endline ("Content scale: " ^ Float.to_string csx ^ ", " ^ Float.to_string csy);
 
-  let (context : Widgets.context) = {
+  let (context : message Widgets.context) = {
       content_scale = csx;
+      messages = Queue.create ()
     } in
 
-  set_root_node context
-    ~components:[
-      { location = 100, 100;
-        inputs = ["a"; "b"];
-        outputs = ["c"] };
-      { location = 200, 100;
-        inputs = ["d"; "e"];
-        outputs = ["f"] };
-      { location = 300, 100;
-        inputs = ["g"; "h"];
-        outputs = ["i"] };
-      { location = 400, 100;
-        inputs = ["j"; "k"];
-        outputs = ["l"] };
-      { location = 500, 100;
-        inputs = ["m"; "n"];
-        outputs = ["o"] }
-    ]
-    ~wires:[];
+  let (model : model) = {
+      counter = 0;
+    } in
   
-  ignore (GLFW.setWindowSizeCallback ~window
-            ~f:(Some (resize context)));
-  ignore (GLFW.setWindowContentScaleCallback ~window
-            ~f:(Some rescale));
-  ignore (GLFW.setCursorPosCallback ~window
-            ~f:(Some (mouse_move context)));
-  ignore (GLFW.setMouseButtonCallback ~window
-            ~f:(Some (mouse_button context)));
+  ignore (GLFW.setWindowSizeCallback ~window ~f:(Some resize));
+  ignore (GLFW.setWindowContentScaleCallback ~window ~f:(Some rescale));
+  ignore (GLFW.setCursorPosCallback ~window ~f:(Some mouse_move));
+  ignore (GLFW.setMouseButtonCallback ~window ~f:(Some mouse_button));
   
   Gl.enable Gl.blend;
   Gl.blend_func Gl.src_alpha Gl.one_minus_src_alpha;
 
-  paint context window;
-  while not (GLFW.windowShouldClose ~window) do
+  set_root ((view context model) :> Widgets.widget);
+  paint window;
+  let rec loop (model : model) =
     GLFW.waitEvents ();
-  done
+    if GLFW.windowShouldClose ~window then ()
+    else if Queue.is_empty context.messages then
+      loop model
+    else
+      let model' = handle_all context model in
+      set_root ((view context model') :> Widgets.widget);
+      paint window;
+      loop model' in
+  loop model
 ;;
 
 let _ = main ()

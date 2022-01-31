@@ -51,7 +51,7 @@ let create (curve : t) =
        and b = Vec2.of_point pa.after
        and c = Vec2.of_point pb.before
        and d = Vec2.of_point pb.point in
-       let n_points = max 2 (Float.to_int (Vec2.distance a d *. 0.1)) in
+       let n_points = max 2 (Float.to_int (Vec2.distance a d *. 0.2)) in
        let samples = Array.to_list (linspace n_points) in
        let path = List.map (qubic_bezier a b c d) samples in
        path::(f (pb::rest))

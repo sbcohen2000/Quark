@@ -1,14 +1,15 @@
 open GFX
 exception TODO of string
 
-type context = {
+type 'a context = {
+    messages : 'a Queue.t;
     mutable content_scale : float
   }
 ;;
 
 open List
 
-class virtual widget (ctx : context) (id : string option) =
+class virtual widget (ctx : 'a context) (id : string option) =
         object(self)
           val id = match id with Some s -> s | None -> ""
           method get_id = id
@@ -34,7 +35,7 @@ class virtual widget (ctx : context) (id : string option) =
         end
 ;;
 
-class virtual container (ctx : context) (id : string option) =
+class virtual container (ctx : 'a context) (id : string option) =
         object(self)
           inherit widget ctx id
 
@@ -99,7 +100,7 @@ class virtual container (ctx : context) (id : string option) =
         end
 ;;
 
-class spacer (ctx : context) (width : int) (height : int) =
+class spacer (ctx : 'a context) (width : int) (height : int) =
   object(self)
     inherit widget ctx None
 
@@ -119,7 +120,7 @@ class spacer (ctx : context) (width : int) (height : int) =
   end
 ;;
 
-class label (ctx : context) (text : string) =
+class label (ctx : 'a context) (text : string) =
   let text_width, text_height = TextPainter.measure text in
   let rec shrink (requested_width : int) (text : string) =
     let width, _ = TextPainter.measure text in
@@ -165,7 +166,7 @@ type hover_state =
   | Pressed
 ;;
 
-class button (ctx : context) (text : string) =
+class button (ctx : 'a context) ?(on_press : (unit -> 'a) option) (text : string) =
   let padding = 4 in
   let child = new label ctx text in
   object(self)
@@ -231,7 +232,12 @@ class button (ctx : context) (text : string) =
       | Event.Mouse_Down _ ->
          hover_state <- Pressed; true
       | Event.Mouse_Up _ ->
-         hover_state <- Hovered; true
+         hover_state <- Hovered;
+         (match on_press with
+          | Some cb ->
+             let message = cb () in
+             Queue.add message ctx.messages;
+          | None -> ()); true
       | Event.Mouse_Enter _ ->
          hover_state <- Hovered; true
       | Event.Mouse_Leave _ ->
@@ -245,7 +251,7 @@ class button (ctx : context) (text : string) =
   end
 ;;
 
-class row (ctx : context) (children : widget list) =
+class row (ctx : 'a context) (children : widget list) =
   object
     inherit container ctx None
     
@@ -307,7 +313,7 @@ class row (ctx : context) (children : widget list) =
   end
 ;;
 
-class column (ctx : context) (children : widget list) =
+class column (ctx : 'a context) (children : widget list) =
   object
     inherit container ctx None
     
@@ -352,7 +358,7 @@ class column (ctx : context) (children : widget list) =
   end
 ;;
 
-class stack (ctx : context) (children : (widget * Point.t) list) =
+class stack (ctx : 'a context) (children : (widget * Point.t) list) =
   object
     inherit container ctx None
     
@@ -381,7 +387,7 @@ class stack (ctx : context) (children : (widget * Point.t) list) =
   end
 ;;
 
-class frame (ctx : context) (child : widget) ~(on_mouse_down : Point.t -> unit) =
+class frame (ctx : 'a context) (child : widget) ~(on_mouse_down : Point.t -> unit) =
   let title_height = 10 in
   object(self)
     inherit container ctx None as super
@@ -447,7 +453,7 @@ class frame (ctx : context) (child : widget) ~(on_mouse_down : Point.t -> unit) 
   end
 ;;
 
-class receptacle (ctx : context) (id : string)
+class receptacle (ctx : 'a context) (id : string)
         ~(on_mouse_down : string -> unit)
         ~(on_mouse_up : string -> unit) =
   let size = 10 in
@@ -495,7 +501,7 @@ class receptacle (ctx : context) (id : string)
 ;;
 
 let component
-      (ctx : context)
+      (ctx : 'a context)
       ~(inputs : string list)
       ~(outputs : string list)
       ~(on_clicked_receptacle : string -> unit)
@@ -555,7 +561,7 @@ type component_spec =
   }
 ;;
 
-class component_graph (ctx : context)
+class component_graph (ctx : 'a context)
         ~(components     : component_spec list)
         ~(wires          : (string * string) list)
         ~(on_move        : int * Point.t -> unit)
