@@ -575,10 +575,10 @@ type component_spec =
 class component_graph (ctx : 'a context)
         ~(components     : component_spec list)
         ~(wires          : (string * string) list)
-        ~(on_move        : int * Point.t -> unit)
-        ~(on_new_wire    : string * string -> unit)
-        ~(on_delete_wire : string * string -> unit)
-        ~(on_move_wire   : string * string -> unit) =
+        ~(on_move        : int * Point.t -> 'a)
+        ~(on_new_wire    : string * string -> 'a)
+        ~(on_delete_wire : string * string -> 'a)
+        ~(on_move_wire   : string * string -> 'a) =
   object(self)
     inherit widget ctx None
 
@@ -616,7 +616,8 @@ class component_graph (ctx : 'a context)
         ~on_released_receptacle:(fun end_port ->
           match dragging with
           | Dragging_Wire drag ->
-             on_new_wire (drag.start_port, end_port);
+             let message = on_new_wire (drag.start_port, end_port) in
+             Queue.add message ctx.messages;
              dragging <- NoDrag;
           | Moving_Wire _ ->
              move_destination <- Some end_port;
@@ -712,19 +713,19 @@ class component_graph (ctx : 'a context)
          dragging <- Moving_Wire { drag with current_location = p }; true
       | Event.Mouse_Up _, Dragging_Frame drag ->
          dragging <- NoDrag;
-         on_move (drag.frame_no, Point.sub drag.current_location drag.offset);
-         dirty
+         let message = on_move (drag.frame_no, Point.sub drag.current_location drag.offset) in
+         Queue.add message ctx.messages; dirty
       | Event.Mouse_Up _, Dragging_Wire _ ->
-         ignore (stack#handle e ~dirty);
-         dragging <- NoDrag; true
+         let responded = stack#handle e ~dirty in
+         dragging <- NoDrag; dirty || responded
       | Event.Mouse_Up _, Moving_Wire drag ->
-         ignore (stack#handle e ~dirty);
-
-         (match move_destination with
-          | None -> on_delete_wire (drag.start_port, drag.end_port);
-          | Some dst -> on_move_wire (drag.end_port, dst));
+         let responded = stack#handle e ~dirty in
+         let message = match move_destination with
+           | None -> on_delete_wire (drag.start_port, drag.end_port)
+           | Some dst -> on_move_wire (drag.end_port, dst) in
+         Queue.add message ctx.messages;
          move_destination <- None;
-         dragging <- NoDrag; true
+         dragging <- NoDrag; dirty || responded
       | _ -> stack#handle e ~dirty
 
     method location_of_child (child_id : string) (p : Point.t) =
