@@ -1,4 +1,4 @@
 (library
  (name GFX)
- (libraries tgls.tgl4))
+ (libraries tgls.tgl4 glfw-ocaml))
  
