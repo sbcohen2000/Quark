@@ -96,6 +96,46 @@ let mouse_button window _button was_press _modifiers =
   if dirty then paint window
 ;;
 
+let key_press window (key : GLFW.key) (_scancode : int)
+      (action : GLFW.key_action) (mods : GLFW.key_mod list) =
+  match action with
+  | GLFW.Release -> ()
+  | GLFW.Press | GLFW.Repeat ->
+     let key_event = match mods, key with
+       | [GLFW.Control], GLFW.B | _, GLFW.Left ->
+          Some Event.Move_Backward
+       | [GLFW.Control], GLFW.F | _, GLFW.Right ->
+          Some Event.Move_Forward
+       | [GLFW.Control], GLFW.P | _, GLFW.Up ->
+          Some Event.Move_Up
+       | [GLFW.Control], GLFW.N | _, GLFW.Down ->
+          Some Event.Move_Down
+       | [GLFW.Control], GLFW.A | _, GLFW.Home ->
+          Some Event.Move_Start
+       | [GLFW.Control], GLFW.E | _, GLFW.End ->
+          Some Event.Move_End
+       | [GLFW.Control], GLFW.K ->
+          Some Event.Kill_Line
+       | [GLFW.Control], GLFW.Backspace ->
+          Some Event.Kill_Word
+       | _, GLFW.Backspace ->
+          Some Event.Backspace
+       | _ -> None in
+     match key_event with
+     | Some key ->
+        let root = get_root () in
+        let dirty = root#handle (Event.Key_Press key) ~dirty:false in
+        if dirty then paint window
+     | None -> ()
+;;
+
+let char_key_press window (codepoint : int) =
+  let root = get_root () in
+  let c = Char.chr codepoint in
+  let dirty = root#handle (Event.Key_Press (Event.Character c)) ~dirty:false in
+  if dirty then paint window
+;;  
+
 let gl_version_string () =
   match Gl.get_string Gl.version with
   | None -> "error"
@@ -128,7 +168,9 @@ let main (interface : ('model, 'message) t) =
   ignore (GLFW.setWindowContentScaleCallback ~window ~f:(Some rescale));
   ignore (GLFW.setCursorPosCallback ~window ~f:(Some mouse_move));
   ignore (GLFW.setMouseButtonCallback ~window ~f:(Some mouse_button));
-  
+  ignore (GLFW.setKeyCallback ~window ~f:(Some key_press));
+  ignore (GLFW.setCharCallback ~window ~f:(Some char_key_press));
+
   Gl.enable Gl.blend;
   Gl.blend_func Gl.src_alpha Gl.one_minus_src_alpha;
 

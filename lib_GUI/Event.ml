@@ -1,10 +1,22 @@
 open GFX
 
+type key = Character of Char.t
+         | Move_Backward
+         | Move_Forward
+         | Move_Up
+         | Move_Down
+         | Move_Start
+         | Move_End
+         | Kill_Line
+         | Kill_Word
+         | Backspace
+
 type t = Mouse_Up    of Point.t
        | Mouse_Down  of Point.t
        | Mouse_Move  of Point.t * Point.t
        | Mouse_Enter of Point.t (* second point *)
        | Mouse_Leave of Point.t (*  first point *)
+       | Key_Press   of key
 ;;
 
 let translate_position (x : int) (y : int) = function
@@ -14,6 +26,7 @@ let translate_position (x : int) (y : int) = function
      Mouse_Move ((ax + x, ay + y), (bx + x, by + y))
   | Mouse_Enter (x', y') -> Mouse_Enter (x' + x, y' + y)
   | Mouse_Leave (x', y') -> Mouse_Leave (x' + x, y' + y)
+  | e -> e
 ;;
 
 let create_enter_or_leave (bounds : Rect.t) (e : t) =

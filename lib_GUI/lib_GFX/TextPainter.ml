@@ -183,8 +183,8 @@ let get_face () =
   match !face_global with
   | None ->
      let face = load_font
-                  ~texture:"./fonts/Geneva-13.ppm"
-                  ~metadata:"./fonts/Geneva-13.txt" in
+                  ~texture:"./fonts/Geneva-26.ppm"
+                  ~metadata:"./fonts/Geneva-26.txt" in
      face_global := Some face;
      face
   | Some face -> face

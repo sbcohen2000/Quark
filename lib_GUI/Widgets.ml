@@ -96,6 +96,11 @@ class virtual container (ctx : 'a context) (id : string option) =
                      else false)
                    child_widgets child_rects in
                List.exists ((=) true) child_responses || dirty
+            | Event.Key_Press _ ->
+               let child_responses =
+                 List.map (fun child ->
+                     child#handle e ~dirty) child_widgets in
+               List.exists ((=) true) child_responses || dirty
           
           method location_of_child (child_id : string) (p : Point.t) =
             if child_id = id then Some p
@@ -131,7 +136,10 @@ class spacer (ctx : 'a context) (width : int) (height : int) =
   end
 ;;
 
-class label (ctx : 'a context) (text : string) =
+type alignment = Left | Center | Right
+;;
+
+class label (ctx : 'a context) ?(align : alignment option) (text : string) =
   let text_width, text_height = TextPainter.measure text in
   let rec shrink (requested_width : int) (text : string) =
     let width, _ = TextPainter.measure text in
@@ -155,12 +163,16 @@ class label (ctx : 'a context) (text : string) =
       [ 0, 0, m_width, m_height ]
 
     method paint_impl ~(measurement : Rect.t list) (view : Mat2.t) (clip : Rect.t) =
-      let _, _, width, height = List.hd measurement in
+      let _, _, width, _ = List.hd measurement in
       let text' = if width < text_width then shrink width text
                   else text in
-      let text_width, _ = TextPainter.measure text' in
-      let left_padding = Int.of_float (Float.floor (Float.of_int (width - text_width) /. 2.)) in
-      let painter = TextPainter.create (left_padding, height / 2) text' in
+      let text_width, text_height = TextPainter.measure text' in
+      let left_padding = match align with
+        | None | Some Left -> 0
+        | Some Center -> 
+           Int.of_float (Float.floor (Float.of_int (width - text_width) /. 2.))
+        | Some Right -> width - text_width in
+      let painter = TextPainter.create (left_padding, text_height / 2) text' in
       TextPainter.paint view clip painter
 
     method handle _ ~dirty = dirty
@@ -170,6 +182,109 @@ class label (ctx : 'a context) (text : string) =
       else None
   end
 ;;
+
+class textbox (ctx : 'a context) (before_cursor, after_cursor : string * string) =
+  let (style : RectPainter.style) = {
+      top_right_radius    = 0;
+      bottom_right_radius = 0;
+      bottom_left_radius  = 0;
+      top_left_radius     = 0;
+      color = 0.22, 0.46, 0.87;
+      border_color = None
+    } in
+  object(self)
+    inherit container ctx None as super
+
+    val mutable text = before_cursor, after_cursor
+    val mutable label = 
+      new label ctx ~align:Left (before_cursor ^ after_cursor)
+
+    method private rebuild_label () =
+      new label ctx ~align:Left (fst text ^ snd text)
+    
+    method get_child_widgets () = [(label :> widget)]
+
+    method measure_impl ~(requested_width : int option)
+             ~(requested_height : int option) =
+      let m_width, m_height = match requested_width, requested_height with
+        | Some width, Some height -> label#measure ~requested_width:width ~requested_height:height ()
+        | Some width, None -> label#measure ~requested_width:width ()
+        | None, Some height -> label#measure ~requested_height:height ()
+        | None, None -> label#measure () in
+      [ 0, 0, m_width, m_height ]
+
+    method paint_impl ~measurement:_ (view : Mat2.t) (clip : Rect.t) =
+      let before_text_width, height = TextPainter.measure (fst text) in
+      let cursor_rect = before_text_width - self#scale 2, 0, self#scale 4, height in
+      let cursor_painter = RectPainter.create [| cursor_rect |] in
+      label#paint view clip;
+      RectPainter.paint view cursor_rect style cursor_painter
+
+    method private handle_key (state : string * string) (key : Event.key) =
+      let before_cursor, after_cursor = state in
+      let handle_backspace = function
+        | "", str -> "", str
+        | before, after -> String.sub before 0 (String.length before - 1), after in
+      let handle_move_backward = function
+        | "", str -> "", str
+        | before, after ->
+           let char_before_cursor = String.get before (String.length before - 1) in
+           String.sub before 0 (String.length before - 1),
+           Char.escaped char_before_cursor ^ after in
+      let handle_move_forward = function
+        | str, "" -> str, ""
+        | before, after ->
+           let char_after_cursor = String.get after 0 in
+           before ^ Char.escaped char_after_cursor,
+           String.sub after 1 (String.length after - 1) in
+      let handle_kill_word = function
+        | "", str -> "", str
+        | before, after ->
+           let next_space = String.rindex_opt before ' ' in
+           match next_space with
+           | Some idx -> String.sub before 0 idx, after
+           | None -> "", after in
+      match key with
+      | Event.Character c   -> before_cursor ^ Char.escaped c, after_cursor
+      | Event.Move_Backward -> handle_move_backward state
+      | Event.Move_Forward  -> handle_move_forward state
+      | Event.Move_Up       -> state
+      | Event.Move_Down     -> state
+      | Event.Move_Start    -> "", before_cursor ^ after_cursor
+      | Event.Move_End      -> before_cursor ^ after_cursor, ""
+      | Event.Kill_Line     -> before_cursor, ""
+      | Event.Kill_Word     -> handle_kill_word state
+      | Event.Backspace     -> handle_backspace state
+
+    method private handle_click (state : string * string) (location : Point.t) =
+      let all_text = fst state ^ snd state in
+      let loc_x, _ = location in
+      let rec f (idx : int) (last_width : int) =
+        if idx <= String.length all_text then
+          let substring = String.sub all_text 0 idx in
+          let width, _ = TextPainter.measure substring in
+          if loc_x < width then
+            if loc_x < last_width + (width - last_width) / 2
+            then idx - 1 (* closer to prev char *)
+            else idx     (* closer to next char *)
+          else f (idx + 1) width
+        else String.length all_text in
+      let cursor_index = f 0 0 in
+      String.sub all_text 0 cursor_index,
+      String.sub all_text cursor_index (String.length all_text - cursor_index)
+      
+    method! handle (e : Event.t) ~(dirty : bool) =
+      match e with
+      | Event.Key_Press key ->
+         text <- self#handle_key (fst text, snd text) key;
+         label <- self#rebuild_label ();
+         true
+      | Event.Mouse_Down p ->
+         text <- self#handle_click (fst text, snd text) p;
+         label <- self#rebuild_label ();
+         true
+      | _ -> super#handle e ~dirty
+  end
 
 type hover_state =
   | Normal
@@ -716,8 +831,8 @@ class component_graph (ctx : 'a context)
          let message = on_move (drag.frame_no, Point.sub drag.current_location drag.offset) in
          Queue.add message ctx.messages; dirty
       | Event.Mouse_Up _, Dragging_Wire _ ->
-         let responded = stack#handle e ~dirty in
-         dragging <- NoDrag; dirty || responded
+         ignore (stack#handle e ~dirty);
+         dragging <- NoDrag; true
       | Event.Mouse_Up _, Moving_Wire drag ->
          let responded = stack#handle e ~dirty in
          let message = match move_destination with

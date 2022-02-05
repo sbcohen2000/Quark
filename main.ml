@@ -13,19 +13,23 @@ type model = {
   }
 ;;
 
-let view (ctx : message Widgets.context) (m : model) =
-  (new Widgets.component_graph ctx
-     ~components:m.components
-     ~wires:m.wires
-     ~on_move:(fun (frame_no, new_location) ->
-       Frame_Moved (frame_no, new_location))
-     ~on_new_wire:(fun (start_port, end_port) ->
-       New_Wire (start_port, end_port))
-     ~on_delete_wire:(fun (start_port, end_port) ->
-       Delete_Wire (start_port, end_port))
-     ~on_move_wire:(fun (old_end_port, new_end_port) ->
-       Move_Wire (old_end_port, new_end_port))
-   :> Widgets.widget)
+(* let view (ctx : message Widgets.context) (m : model) = *)
+(*   (new Widgets.component_graph ctx *)
+(*      ~components:m.components *)
+(*      ~wires:m.wires *)
+(*      ~on_move:(fun (frame_no, new_location) -> *)
+(*        Frame_Moved (frame_no, new_location)) *)
+(*      ~on_new_wire:(fun (start_port, end_port) -> *)
+(*        New_Wire (start_port, end_port)) *)
+(*      ~on_delete_wire:(fun (start_port, end_port) -> *)
+(*        Delete_Wire (start_port, end_port)) *)
+(*      ~on_move_wire:(fun (old_end_port, new_end_port) -> *)
+(*        Move_Wire (old_end_port, new_end_port)) *)
+(*    :> Widgets.widget) *)
+(* ;; *)
+
+let view (ctx : message Widgets.context) (_m : model) =
+  ((new Widgets.textbox ctx ("Hello", "")) :> Widgets.widget)
 ;;
 
 let handle (model : model) = function
