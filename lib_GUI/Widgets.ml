@@ -215,7 +215,7 @@ class textbox (ctx : 'a context) (before_cursor, after_cursor : string * string)
 
     method paint_impl ~measurement:_ (view : Mat2.t) (clip : Rect.t) =
       let before_text_width, height = TextPainter.measure (fst text) in
-      let cursor_rect = before_text_width - self#scale 2, 0, self#scale 4, height in
+      let cursor_rect = before_text_width - self#scale 3, 0, self#scale 6, height in
       let cursor_painter = RectPainter.create [| cursor_rect |] in
       label#paint view clip;
       RectPainter.paint view cursor_rect style cursor_painter
@@ -257,7 +257,8 @@ class textbox (ctx : 'a context) (before_cursor, after_cursor : string * string)
       | Event.Backspace     -> handle_backspace state
 
     method private handle_click (state : string * string) (location : Point.t) =
-      let all_text = fst state ^ snd state in
+      let before, after = state in
+      let all_text = before ^ after in
       let loc_x, _ = location in
       let rec f (idx : int) (last_width : int) =
         if idx <= String.length all_text then
