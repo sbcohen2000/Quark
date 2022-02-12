@@ -36,6 +36,16 @@ let view (ctx : message Widgets.context) (m : model) =
    ) :> Widgets.widget)
 ;;
 
+(* let view (ctx : message Widgets.context) (_m : model) = *)
+(*   ((new Widgets.row ctx [ *)
+(*         ((new Widgets.button ctx "hello") :> Widgets.widget); *)
+(*         ((new Widgets.button ctx "hello") :> Widgets.widget); *)
+(*         ((new Widgets.button ctx "hello") :> Widgets.widget); *)
+(*         ((new Widgets.button ctx "hello") :> Widgets.widget); *)
+(*       ]) :> Widgets.widget) *)
+
+(* ;; *)
+
 let handle (m : model) = function
   | Frame_Moved (frame_no, new_location) ->
      { m with components =
