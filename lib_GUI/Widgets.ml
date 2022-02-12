@@ -183,45 +183,18 @@ class label (ctx : 'a context) ?(align : alignment option) (text : string) =
   end
 ;;
 
-class textbox (ctx : 'a context) (before_cursor, after_cursor : string * string) =
-  let (style : RectPainter.style) = {
-      top_right_radius    = 0;
-      bottom_right_radius = 0;
-      bottom_left_radius  = 0;
-      top_left_radius     = 0;
-      color = 0.22, 0.46, 0.87;
-      border_color = None
-    } in
-  object(self)
-    inherit container ctx None as super
+module TextboxModel : sig
+  type t = string * string
 
-    val mutable text = before_cursor, after_cursor
-    val mutable label = 
-      new label ctx ~align:Left (before_cursor ^ after_cursor)
+  val handle_key : t -> Event.key -> t
+  val handle_click : t -> int -> t
+  val create : unit -> t
+end =
+  struct
+    type t = string * string (* before cursor, after cursor *)
 
-    method private rebuild_label () =
-      new label ctx ~align:Left (fst text ^ snd text)
-    
-    method get_child_widgets () = [(label :> widget)]
-
-    method measure_impl ~(requested_width : int option)
-             ~(requested_height : int option) =
-      let m_width, m_height = match requested_width, requested_height with
-        | Some width, Some height -> label#measure ~requested_width:width ~requested_height:height ()
-        | Some width, None -> label#measure ~requested_width:width ()
-        | None, Some height -> label#measure ~requested_height:height ()
-        | None, None -> label#measure () in
-      [ 0, 0, m_width, m_height ]
-
-    method paint_impl ~measurement:_ (view : Mat2.t) (clip : Rect.t) =
-      let before_text_width, height = TextPainter.measure (fst text) in
-      let cursor_rect = before_text_width - self#scale 3, 0, self#scale 6, height in
-      let cursor_painter = RectPainter.create [| cursor_rect |] in
-      label#paint view clip;
-      RectPainter.paint view cursor_rect style cursor_painter
-
-    method private handle_key (state : string * string) (key : Event.key) =
-      let before_cursor, after_cursor = state in
+    let handle_key (text : string * string) (m : Event.key) =
+      let before_cursor, after_cursor = text in
       let handle_backspace = function
         | "", str -> "", str
         | before, after -> String.sub before 0 (String.length before - 1), after in
@@ -244,19 +217,64 @@ class textbox (ctx : 'a context) (before_cursor, after_cursor : string * string)
            match next_space with
            | Some idx -> String.sub before 0 idx, after
            | None -> "", after in
-      match key with
-      | Event.Character c   -> before_cursor ^ Char.escaped c, after_cursor
-      | Event.Move_Backward -> handle_move_backward state
-      | Event.Move_Forward  -> handle_move_forward state
-      | Event.Move_Up       -> state
-      | Event.Move_Down     -> state
-      | Event.Move_Start    -> "", before_cursor ^ after_cursor
-      | Event.Move_End      -> before_cursor ^ after_cursor, ""
-      | Event.Kill_Line     -> before_cursor, ""
-      | Event.Kill_Word     -> handle_kill_word state
-      | Event.Backspace     -> handle_backspace state
+      match m with
+      | Character c   -> before_cursor ^ Char.escaped c, after_cursor
+      | Move_Backward -> handle_move_backward text
+      | Move_Forward  -> handle_move_forward text
+      | Move_Up       -> text
+      | Move_Down     -> text
+      | Move_Start    -> "", before_cursor ^ after_cursor
+      | Move_End      -> before_cursor ^ after_cursor, ""
+      | Kill_Line     -> before_cursor, ""
+      | Kill_Word     -> handle_kill_word text
+      | Backspace     -> handle_backspace text
 
-    method private handle_click (state : string * string) (location : Point.t) =
+    let handle_click (text : string * string) (column : int) =
+      let all_text = fst text ^ snd text in
+      String.sub all_text 0 column,
+      String.sub all_text column (String.length all_text - column)
+    
+    let create () = "", ""
+  end
+;;
+
+class textbox (ctx : 'a context) (model : TextboxModel.t)
+        ~(on_update_model : TextboxModel.t -> 'a) =
+  let (style : RectPainter.style) = {
+      top_right_radius    = 0;
+      bottom_right_radius = 0;
+      bottom_left_radius  = 0;
+      top_left_radius     = 0;
+      color = 0.22, 0.46, 0.87;
+      border_color = None
+    } in
+  let build_label (model : TextboxModel.t) =
+    let before_cursor, after_cursor = model in
+    new label ctx ~align:Left (before_cursor ^ after_cursor) in
+  object(self)
+    inherit container ctx None as super
+
+    val label = build_label model
+    
+    method get_child_widgets () = [(label :> widget)]
+
+    method measure_impl ~(requested_width : int option)
+             ~(requested_height : int option) =
+      let m_width, m_height = match requested_width, requested_height with
+        | Some width, Some height -> label#measure ~requested_width:width ~requested_height:height ()
+        | Some width, None -> label#measure ~requested_width:width ()
+        | None, Some height -> label#measure ~requested_height:height ()
+        | None, None -> label#measure () in
+      [ 0, 0, m_width, m_height ]
+
+    method paint_impl ~measurement:_ (view : Mat2.t) (clip : Rect.t) =
+      let before_text_width, height = TextPainter.measure (fst model) in
+      let cursor_rect = before_text_width - self#scale 2, 0, self#scale 4, height in
+      let cursor_painter = RectPainter.create [| cursor_rect |] in
+      label#paint view clip;
+      RectPainter.paint view cursor_rect style cursor_painter
+
+    method private get_click_column (state : string * string) (location : Point.t) =
       let before, after = state in
       let all_text = before ^ after in
       let loc_x, _ = location in
@@ -270,20 +288,19 @@ class textbox (ctx : 'a context) (before_cursor, after_cursor : string * string)
             else idx     (* closer to next char *)
           else f (idx + 1) width
         else String.length all_text in
-      let cursor_index = f 0 0 in
-      String.sub all_text 0 cursor_index,
-      String.sub all_text cursor_index (String.length all_text - cursor_index)
+      f 0 0
       
     method! handle (e : Event.t) ~(dirty : bool) =
       match e with
       | Event.Key_Press key ->
-         text <- self#handle_key (fst text, snd text) key;
-         label <- self#rebuild_label ();
-         true
+         let model' = TextboxModel.handle_key model key in
+         let message = on_update_model model' in
+         Queue.add message ctx.messages; true
       | Event.Mouse_Down p ->
-         text <- self#handle_click (fst text, snd text) p;
-         label <- self#rebuild_label ();
-         true
+         let click_column = self#get_click_column model p in
+         let model' = TextboxModel.handle_click model click_column in
+         let message = on_update_model model' in
+         Queue.add message ctx.messages; true
       | _ -> super#handle e ~dirty
   end
 

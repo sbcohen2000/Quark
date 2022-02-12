@@ -5,11 +5,13 @@ type message = Frame_Moved of int * GFX.Point.t
              | Delete_Wire of string * string
              | Move_Wire of string * string
              | Button_Pressed of string
+             | Textbox_Updated of Widgets.TextboxModel.t
 ;;
 
 type model = {
     components : Widgets.component_spec list;
     wires : (string * string) list;
+    textbox : Widgets.TextboxModel.t;
   }
 ;;
 
@@ -28,31 +30,35 @@ type model = {
 (*    :> Widgets.widget) *)
 (* ;; *)
 
-let view (ctx : message Widgets.context) (_m : model) =
-  ((new Widgets.textbox ctx ("Hello", "")) :> Widgets.widget)
+let view (ctx : message Widgets.context) (m : model) =
+  ((new Widgets.textbox ctx m.textbox
+      ~on_update_model:(fun tb_m -> Textbox_Updated tb_m)
+   ) :> Widgets.widget)
 ;;
 
-let handle (model : model) = function
+let handle (m : model) = function
   | Frame_Moved (frame_no, new_location) ->
-     { model with components =
+     { m with components =
                     List.mapi (fun idx (component : Widgets.component_spec) ->
                         if idx = frame_no then
                           { component with location = new_location }
                         else
                           component
-                      ) model.components }
+                      ) m.components }
   | New_Wire (start_port, end_port) ->
-     { model with wires = (start_port, end_port)::model.wires }
+     { m with wires = (start_port, end_port)::m.wires }
   | Delete_Wire (start_port, end_port) ->
-     { model with wires = List.filter (fun (start_port', end_port') ->
-                              not (start_port = start_port'
-                                   && end_port = end_port')) model.wires }
+     { m with wires = List.filter (fun (start_port', end_port') ->
+                          not (start_port = start_port'
+                               && end_port = end_port')) m.wires }
   | Move_Wire (old_end_port, new_end_port) ->
-     { model with wires = List.map (fun (start_port, end_port) ->
-                              if end_port = old_end_port then
-                                start_port, new_end_port
-                              else start_port, end_port) model.wires }
-  | _ -> model
+     { m with wires = List.map (fun (start_port, end_port) ->
+                          if end_port = old_end_port then
+                            start_port, new_end_port
+                          else start_port, end_port) m.wires }
+  | Textbox_Updated new_model ->
+     { m with textbox = new_model }
+  | _ -> m
 ;;
 
 let window = Window.create ~handle ~view
@@ -65,7 +71,8 @@ let window = Window.create ~handle ~view
                      inputs = ["x"; "y"; "z"];
                      outputs = ["output2"] }
                  ];
-                 wires = []
+                 wires = [];
+                 textbox = Widgets.TextboxModel.create ()
                }
 ;;
 
