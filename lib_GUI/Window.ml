@@ -120,6 +120,8 @@ let key_press window (key : GLFW.key) (_scancode : int)
           Some Event.Kill_Word
        | _, GLFW.Backspace ->
           Some Event.Backspace
+       | [GLFW.Control], GLFW.Space ->
+          Some Event.Set_Selection
        | _ -> None in
      match key_event with
      | Some key ->

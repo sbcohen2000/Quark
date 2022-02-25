@@ -10,6 +10,7 @@ type key = Character of Char.t
          | Kill_Line
          | Kill_Word
          | Backspace
+         | Set_Selection
 
 type t = Mouse_Up    of Point.t
        | Mouse_Down  of Point.t

@@ -217,7 +217,7 @@ module TextboxModel =
     type t = {
         before : string;
         after : string;
-        selection : int
+        selection : int option
         (* if selection = 0, there is no selection,
          *    selection < 0, selection is to left of cursor,
          *    selection > 0, selection is to right of cursor
@@ -226,8 +226,22 @@ module TextboxModel =
 
     (* no_selection creates a model from the tuple with no selection *)
     let no_selection (text : string * string) =
-      { before = fst text; after = snd text; selection = 0 }
-    
+      { before = fst text; after = snd text; selection = None }
+
+    (* returns a triple of strings: before, selected, and after *)
+    let partition_on_selection (model : t) =
+      match model.selection with
+      | Some n when n > 0 ->
+         model.before,
+         String.sub model.after 0 n,
+         String.sub model.after n (String.length model.after - n)
+      | Some n when n < 0 ->
+         let before_len = String.length model.before in
+         String.sub model.before 0 (before_len + n),
+         String.sub model.before (before_len + n) (-n),
+         model.after
+      | _ -> model.before, "", model.after
+      
     let handle_key (model : t) (m : Event.key) =
       let handle_backspace (model : t) =
         match model.before, model.after with
@@ -239,17 +253,21 @@ module TextboxModel =
         | "", str -> no_selection ("", str)
         | before, after ->
            let char_before_cursor = String.get before (String.length before - 1) in
-           no_selection
-             (String.sub before 0 (String.length before - 1),
-              Char.escaped char_before_cursor ^ after) in
+           { before = String.sub before 0 (String.length before - 1);
+             after  = Char.escaped char_before_cursor ^ after;
+             selection = match model.selection with
+                         | None -> None
+                         | Some n -> Some (n + 1) } in
       let handle_move_forward (model : t) = 
         match model.before, model.after with
         | str, "" -> no_selection (str, "")
         | before, after ->
            let char_after_cursor = String.get after 0 in
-           no_selection
-             (before ^ Char.escaped char_after_cursor,
-              String.sub after 1 (String.length after - 1)) in
+           { before = before ^ Char.escaped char_after_cursor;
+             after  = String.sub after 1 (String.length after - 1);
+             selection = match model.selection with
+                         | None -> None
+                         | Some n -> Some (n - 1) } in
       let handle_kill_word (model : t) = 
         match model.before, model.after with
         | "", str -> no_selection ("", str)
@@ -270,6 +288,7 @@ module TextboxModel =
       | Kill_Line     -> no_selection (model.before, "")
       | Kill_Word     -> handle_kill_word model
       | Backspace     -> handle_backspace model
+      | Set_Selection -> { model with selection = Some 0 }
 
     let handle_click (model : t) (column : int) =
       let all_text = model.before ^ model.after in
@@ -277,7 +296,7 @@ module TextboxModel =
         (String.sub all_text 0 column,
          String.sub all_text column (String.length all_text - column))
     
-    let create () = { before = ""; after = ""; selection = 0 }
+    let create () = { before = ""; after = ""; selection = None }
   end
 ;;
 
@@ -291,6 +310,8 @@ class textbox (ctx : 'a context) (model : TextboxModel.t)
       color = 0.22, 0.46, 0.87;
       border_color = None
     } in
+  let (selection_style : RectPainter.style) =
+    { style with color = 0.11, 0.23, 0.43 } in
   let build_label (model : TextboxModel.t) =
     new label ctx ~align:Left (model.before ^ model.after) in
   object(self)
@@ -310,9 +331,18 @@ class textbox (ctx : 'a context) (model : TextboxModel.t)
       Children [0, 0, m_width, m_height]
 
     method paint_impl _ (view : Mat2.t) (clip : Rect.t) =
+      let cursor_width = self#scale 4 in
+      let before_selection_text, selection_text, _ = TextboxModel.partition_on_selection model in
       let before_text_width, height = TextPainter.measure model.before in
-      let cursor_rect = before_text_width - self#scale 2, 0, self#scale 4, height in
+      let before_selection_width, _ = TextPainter.measure before_selection_text in
+      let selection_width,        _ = TextPainter.measure selection_text in
+      let cursor_rect = before_text_width - cursor_width / 2, 0,
+                        cursor_width, height in
+      let selection_rect = before_selection_width - cursor_width / 2, 0,
+                           selection_width + cursor_width, height in
       let cursor_painter = RectPainter.create [| cursor_rect |] in
+      let selection_painter = RectPainter.create [| selection_rect |] in
+      RectPainter.paint view selection_rect selection_style selection_painter;
       label#paint view clip;
       RectPainter.paint view cursor_rect style cursor_painter
 
@@ -344,6 +374,7 @@ class textbox (ctx : 'a context) (model : TextboxModel.t)
          Queue.add message ctx.messages; true
       | _ -> super#handle_impl m e ~dirty
   end
+;;
 
 type hover_state =
   | Normal
