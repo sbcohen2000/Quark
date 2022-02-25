@@ -212,58 +212,72 @@ class label (ctx : 'a context) ?(align : alignment option) (text : string) =
   end
 ;;
 
-module TextboxModel : sig
-  type t = string * string
-
-  val handle_key : t -> Event.key -> t
-  val handle_click : t -> int -> t
-  val create : unit -> t
-end =
+module TextboxModel =
   struct
-    type t = string * string (* before cursor, after cursor *)
+    type t = {
+        before : string;
+        after : string;
+        selection : int
+        (* if selection = 0, there is no selection,
+         *    selection < 0, selection is to left of cursor,
+         *    selection > 0, selection is to right of cursor
+         *)
+      }
 
-    let handle_key (text : string * string) (m : Event.key) =
-      let before_cursor, after_cursor = text in
-      let handle_backspace = function
-        | "", str -> "", str
-        | before, after -> String.sub before 0 (String.length before - 1), after in
-      let handle_move_backward = function
-        | "", str -> "", str
+    (* no_selection creates a model from the tuple with no selection *)
+    let no_selection (text : string * string) =
+      { before = fst text; after = snd text; selection = 0 }
+    
+    let handle_key (model : t) (m : Event.key) =
+      let handle_backspace (model : t) =
+        match model.before, model.after with
+        | "", str -> no_selection ("", str)
+        | before, after -> no_selection
+                             (String.sub before 0 (String.length before - 1), after) in
+      let handle_move_backward (model : t) =
+        match model.before, model.after with
+        | "", str -> no_selection ("", str)
         | before, after ->
            let char_before_cursor = String.get before (String.length before - 1) in
-           String.sub before 0 (String.length before - 1),
-           Char.escaped char_before_cursor ^ after in
-      let handle_move_forward = function
-        | str, "" -> str, ""
+           no_selection
+             (String.sub before 0 (String.length before - 1),
+              Char.escaped char_before_cursor ^ after) in
+      let handle_move_forward (model : t) = 
+        match model.before, model.after with
+        | str, "" -> no_selection (str, "")
         | before, after ->
            let char_after_cursor = String.get after 0 in
-           before ^ Char.escaped char_after_cursor,
-           String.sub after 1 (String.length after - 1) in
-      let handle_kill_word = function
-        | "", str -> "", str
+           no_selection
+             (before ^ Char.escaped char_after_cursor,
+              String.sub after 1 (String.length after - 1)) in
+      let handle_kill_word (model : t) = 
+        match model.before, model.after with
+        | "", str -> no_selection ("", str)
         | before, after ->
            let next_space = String.rindex_opt before ' ' in
-           match next_space with
-           | Some idx -> String.sub before 0 idx, after
-           | None -> "", after in
+           no_selection
+             (match next_space with
+              | Some idx -> String.sub before 0 idx, after
+              | None -> "", after) in
       match m with
-      | Character c   -> before_cursor ^ Char.escaped c, after_cursor
-      | Move_Backward -> handle_move_backward text
-      | Move_Forward  -> handle_move_forward text
-      | Move_Up       -> text
-      | Move_Down     -> text
-      | Move_Start    -> "", before_cursor ^ after_cursor
-      | Move_End      -> before_cursor ^ after_cursor, ""
-      | Kill_Line     -> before_cursor, ""
-      | Kill_Word     -> handle_kill_word text
-      | Backspace     -> handle_backspace text
+      | Character c   -> no_selection (model.before ^ Char.escaped c, model.after)
+      | Move_Backward -> handle_move_backward model
+      | Move_Forward  -> handle_move_forward model
+      | Move_Up       -> model
+      | Move_Down     -> model
+      | Move_Start    -> no_selection ("", model.before ^ model.after)
+      | Move_End      -> no_selection (model.before ^ model.after, "")
+      | Kill_Line     -> no_selection (model.before, "")
+      | Kill_Word     -> handle_kill_word model
+      | Backspace     -> handle_backspace model
 
-    let handle_click (text : string * string) (column : int) =
-      let all_text = fst text ^ snd text in
-      String.sub all_text 0 column,
-      String.sub all_text column (String.length all_text - column)
+    let handle_click (model : t) (column : int) =
+      let all_text = model.before ^ model.after in
+      no_selection
+        (String.sub all_text 0 column,
+         String.sub all_text column (String.length all_text - column))
     
-    let create () = "", ""
+    let create () = { before = ""; after = ""; selection = 0 }
   end
 ;;
 
@@ -278,8 +292,7 @@ class textbox (ctx : 'a context) (model : TextboxModel.t)
       border_color = None
     } in
   let build_label (model : TextboxModel.t) =
-    let before_cursor, after_cursor = model in
-    new label ctx ~align:Left (before_cursor ^ after_cursor) in
+    new label ctx ~align:Left (model.before ^ model.after) in
   object(self)
     inherit container ctx None as super
 
@@ -297,15 +310,14 @@ class textbox (ctx : 'a context) (model : TextboxModel.t)
       Children [0, 0, m_width, m_height]
 
     method paint_impl _ (view : Mat2.t) (clip : Rect.t) =
-      let before_text_width, height = TextPainter.measure (fst model) in
+      let before_text_width, height = TextPainter.measure model.before in
       let cursor_rect = before_text_width - self#scale 2, 0, self#scale 4, height in
       let cursor_painter = RectPainter.create [| cursor_rect |] in
       label#paint view clip;
       RectPainter.paint view cursor_rect style cursor_painter
 
-    method private get_click_column (state : string * string) (location : Point.t) =
-      let before, after = state in
-      let all_text = before ^ after in
+    method private get_click_column (model : TextboxModel.t) (location : Point.t) =
+      let all_text = model.before ^ model.after in
       let loc_x, _ = location in
       let rec f (idx : int) (last_width : int) =
         if idx <= String.length all_text then
